@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../api.dart';
+import '../auth.dart';
 import '../brand.dart';
+import '../supabase_config.dart';
+import '../watch.dart';
+import 'sign_in.dart';
 import 'token_detail.dart';
 
 class PortfolioScreen extends StatelessWidget {
@@ -11,6 +15,30 @@ class PortfolioScreen extends StatelessWidget {
   String get shortAddr => address.length > 12
       ? '${address.substring(0, 6)}…${address.substring(address.length - 4)}'
       : address;
+
+  Future<void> _watch(BuildContext context) async {
+    void snack(String msg) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        backgroundColor: Brand.surface2,
+        content: Text(msg, style: const TextStyle(color: Brand.warm)),
+      ));
+    }
+
+    if (!SupabaseConfig.enabled) {
+      snack('Accounts arrive in Beta — watchlists sync then.');
+      return;
+    }
+    var s = KeyviewAuth.session.value;
+    if (s == null) {
+      final ok = await Navigator.of(context)
+          .push<bool>(MaterialPageRoute(builder: (_) => const SignInScreen()));
+      if (ok != true) return;
+      s = KeyviewAuth.session.value;
+      if (s == null) return;
+    }
+    final err = await WatchlistService.add(s, address);
+    if (context.mounted) snack(err ?? 'Watching $shortAddr');
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -22,6 +50,13 @@ class PortfolioScreen extends StatelessWidget {
           Text(shortAddr,
               style: const TextStyle(fontSize: 14, color: Brand.warm)),
         ]),
+        actions: [
+          IconButton(
+            tooltip: 'Add to watchlist',
+            onPressed: () => _watch(context),
+            icon: const Icon(Icons.star_border_rounded, color: Brand.amber),
+          ),
+        ],
       ),
       body: FutureBuilder<Portfolio>(
         future: KeyviewApi.portfolio(address),
