@@ -7,10 +7,10 @@ class SupabaseConfig {
   static const String url = String.fromEnvironment('SUPABASE_URL',
       defaultValue: 'https://ucgakrzintxpyqgdwues.supabase.co');
 
-  /// Paste the anon (publishable) key from
-  /// supabase.com/dashboard → project keyview → Settings → API Keys.
-  static const String anonKey =
-      String.fromEnvironment('SUPABASE_ANON_KEY', defaultValue: '');
+  /// The publishable client key (Supabase: "can be safely shared publicly") —
+  /// RLS is the security boundary, this key only unlocks the anon role.
+  static const String anonKey = String.fromEnvironment('SUPABASE_ANON_KEY',
+      defaultValue: 'sb_publishable_Oql2fAHWP9QnNrUHfRyIrA_bifVRLye');
 
   static bool get enabled => anonKey.isNotEmpty;
 }
