@@ -33,7 +33,9 @@ class _WatchlistScreenState extends State<WatchlistScreen> {
   }
 
   Future<void> _reload() async {
-    final s = KeyviewAuth.session.value;
+    // Refresh a stale token first; fall back to the stored one so a blip
+    // in the refresh call degrades to a retryable error, not a sign-out.
+    final s = await KeyviewAuth.ensureFresh() ?? KeyviewAuth.session.value;
     if (s == null) {
       if (mounted) setState(() => _items = null);
       return;
@@ -58,7 +60,7 @@ class _WatchlistScreenState extends State<WatchlistScreen> {
   }
 
   Future<void> _addDialog() async {
-    final s = KeyviewAuth.session.value;
+    final s = await KeyviewAuth.ensureFresh() ?? KeyviewAuth.session.value;
     if (s == null) return;
     final ctrl = TextEditingController();
     final address = await showDialog<String>(
@@ -195,7 +197,8 @@ class _WatchlistScreenState extends State<WatchlistScreen> {
                 icon: const Icon(Icons.visibility_off_outlined,
                     size: 17, color: Brand.warm3),
                 onPressed: () async {
-                  final s2 = KeyviewAuth.session.value;
+                  final s2 = await KeyviewAuth.ensureFresh() ??
+                      KeyviewAuth.session.value;
                   if (s2 == null) return;
                   await WatchlistService.remove(s2, w.id);
                   _reload();
