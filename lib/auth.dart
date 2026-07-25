@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'api.dart';
 import 'supabase_config.dart';
 
 /// Email + 6-digit-code sign-in against Supabase auth (GoTrue) REST.
@@ -161,6 +162,31 @@ class KeyviewAuth {
   static void signOut() {
     session.value = null;
     unawaited(_persist());
+  }
+
+  /// Permanently delete the account and everything hanging off it.
+  ///
+  /// Supabase will not let a user delete their own auth row with the client
+  /// key, so this goes through the Worker, which holds the service key. Every
+  /// user table cascades from auth.users, so one delete removes the watchlist,
+  /// alarms, devices and notification history in one transaction.
+  ///
+  /// Required by Google Play's account-deletion policy and promised verbatim in
+  /// the published privacy policy (Settings → Account → Delete account).
+  static Future<bool> deleteAccount(Session s) async {
+    try {
+      final r = await http
+          .delete(Uri.parse('${KeyviewApi.base}/v1/account'),
+              headers: {'authorization': 'Bearer ${s.accessToken}'})
+          .timeout(const Duration(seconds: 20));
+      if (r.statusCode >= 200 && r.statusCode < 300) {
+        signOut();
+        return true;
+      }
+      return false;
+    } catch (_) {
+      return false;
+    }
   }
 
   static String _errorFrom(String body) {

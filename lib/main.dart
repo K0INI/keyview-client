@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'auth.dart';
 import 'brand.dart';
+import 'funnel.dart';
 import 'screens/lookup.dart';
 
 Future<void> main() async {
@@ -8,6 +9,8 @@ Future<void> main() async {
   // Local read only — a stored session appears instantly, stale tokens
   // refresh in the background. Never blocks first paint on the network.
   await KeyviewAuth.restore();
+  // Aggregate open counter — the core habit metric (spec §18).
+  Funnel.track(Funnel.evAppOpen);
   runApp(const KeyviewApp());
 }
 
