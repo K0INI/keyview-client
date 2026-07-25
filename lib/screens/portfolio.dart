@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import '../api.dart';
 import '../auth.dart';
 import '../brand.dart';
+import '../funnel.dart';
 import '../supabase_config.dart';
 import '../watch.dart';
 import 'sign_in.dart';
@@ -37,6 +38,7 @@ class PortfolioScreen extends StatelessWidget {
       if (s == null) return;
     }
     final err = await WatchlistService.add(s, address);
+    if (err == null) Funnel.track(Funnel.evWatchAdded);
     if (context.mounted) snack(err ?? 'Watching $shortAddr');
   }
 
@@ -96,6 +98,13 @@ class PortfolioScreen extends StatelessWidget {
                         ],
                       ),
                     ),
+                  ),
+                  // NetWorth framing (spec §4.8): shown right where the point
+                  // lands — a stranger's whole balance sheet just rendered from
+                  // a public address, including theirs.
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: FunnelCard(destination: Funnel.networth),
                   ),
                   if (p.holdings.isNotEmpty && p.totalUsd > 0) ...[
                     const SizedBox(height: 8),

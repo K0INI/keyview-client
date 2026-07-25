@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import '../api.dart';
 import '../brand.dart';
+import 'notifications.dart';
 import 'portfolio.dart';
+import 'settings.dart';
 import 'watchlist.dart';
 
 /// First-run screen: paste any public address, see the portfolio. No sign-up wall.
@@ -95,14 +97,33 @@ class _LookupScreenState extends State<LookupScreen> {
                           onPressed: _go, child: const Text('Watch it')),
                     ),
                     const SizedBox(height: 10),
-                    Center(
-                      child: TextButton(
-                        onPressed: () => Navigator.of(context).push(
-                            MaterialPageRoute(
-                                builder: (_) => const WatchlistScreen())),
-                        child: Text('MY WATCHLIST',
-                            style: Brand.micro(color: Brand.warm2, size: 10)),
-                      ),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        TextButton(
+                          onPressed: () => Navigator.of(context).push(
+                              MaterialPageRoute(
+                                  builder: (_) => const WatchlistScreen())),
+                          child: Text('WATCHLIST',
+                              style: Brand.micro(color: Brand.warm2, size: 10)),
+                        ),
+                        Text('·', style: Brand.micro(size: 10)),
+                        TextButton(
+                          onPressed: () => Navigator.of(context).push(
+                              MaterialPageRoute(
+                                  builder: (_) => const NotificationsScreen())),
+                          child: Text('ALERTS',
+                              style: Brand.micro(color: Brand.warm2, size: 10)),
+                        ),
+                        Text('·', style: Brand.micro(size: 10)),
+                        TextButton(
+                          onPressed: () => Navigator.of(context).push(
+                              MaterialPageRoute(
+                                  builder: (_) => const SettingsScreen())),
+                          child: Text('SETTINGS',
+                              style: Brand.micro(color: Brand.warm2, size: 10)),
+                        ),
+                      ],
                     ),
                   ],
                 ),

@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import '../api.dart';
 import '../brand.dart';
+import '../funnel.dart';
 
 /// Per-holding detail: position, price, chain, contract, explorer reference.
 /// View-only by design — there is nothing here that can move funds.
@@ -102,6 +103,21 @@ class TokenDetailScreen extends StatelessWidget {
                     _row('EXPLORER', Uri.parse(explorer).host,
                         onCopy: () => _copy(context, 'Explorer link', explorer)),
                 ]),
+              ),
+              const SizedBox(height: 20),
+              // Funnel handoffs (spec §4.8) — one quiet card per destination,
+              // below the content, never covering it.
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('DO MORE WITH IT', style: Brand.micro(size: 10)),
+                    const SizedBox(height: 8),
+                    for (final d in Funnel.forToken)
+                      FunnelCard(destination: d),
+                  ],
+                ),
               ),
               const SizedBox(height: 14),
               Center(
