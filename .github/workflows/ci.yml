@@ -1,5 +1,9 @@
 name: client-ci
 # Public repo ⇒ GitHub-hosted runners are free & unmetered, macOS included.
+#
+# Platform dirs (android/ ios/ macos/ windows/) are COMMITTED — generated once
+# by the scaffold-platforms workflow. The guards below only fire on a checkout
+# that predates that commit; they keep this workflow green in both states.
 on:
   push: { branches: [main] }
   pull_request:
@@ -12,12 +16,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
         with: { channel: stable }
-      - run: flutter create . --org io.koini --project-name keyview --platforms=android,ios,macos,windows
-      - name: Place Firebase config
+      - name: Generate platform dirs (only if not yet committed)
         run: |
-          mkdir -p android/app ios/Runner
-          cp firebase/google-services.json android/app/google-services.json || true
-          cp firebase/GoogleService-Info.plist ios/Runner/GoogleService-Info.plist || true
+          if [ ! -d android ]; then
+            flutter create . --org io.koini --project-name keyview --platforms=android,ios,macos,windows
+          fi
       - run: flutter pub get
       - run: flutter analyze --no-fatal-infos   # info-level lints stay visible, not fatal
       - run: flutter test || true   # drop fallback once suite grows
@@ -31,15 +34,28 @@ jobs:
         with: { distribution: temurin, java-version: "17" }
       - uses: subosito/flutter-action@v2
         with: { channel: stable }
-      - run: flutter create . --org io.koini --project-name keyview --platforms=android
-      - name: Place Firebase config
+      - name: Generate platform dirs (only if not yet committed)
         run: |
-          mkdir -p android/app ios/Runner
-          cp firebase/google-services.json android/app/google-services.json || true
-          cp firebase/GoogleService-Info.plist ios/Runner/GoogleService-Info.plist || true
+          if [ ! -d android ]; then
+            flutter create . --org io.koini --project-name keyview --platforms=android
+          fi
       - run: flutter build apk --debug
       - uses: actions/upload-artifact@v4
         with: { name: keyview-android-debug, path: build/app/outputs/flutter-apk/app-debug.apk }
+
+  ios:
+    needs: analyze
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with: { channel: stable }
+      - name: Generate platform dirs (only if not yet committed)
+        run: |
+          if [ ! -d ios ]; then
+            flutter create . --org io.koini --project-name keyview --platforms=ios
+          fi
+      - run: flutter build ios --debug --no-codesign
 
   macos:
     needs: analyze
@@ -48,7 +64,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
         with: { channel: stable }
-      - run: flutter create . --org io.koini --project-name keyview --platforms=macos
+      - name: Generate platform dirs (only if not yet committed)
+        run: |
+          if [ ! -d macos ]; then
+            flutter create . --org io.koini --project-name keyview --platforms=macos
+          fi
       - run: flutter build macos --debug
 # Release signing (Play App Signing keys, Apple certs, notarization) is added
 # in Phase 3 via repo secrets — see KeyHole_Build_Deploy_Plan.docx §7.

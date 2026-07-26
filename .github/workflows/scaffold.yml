@@ -1,0 +1,79 @@
+name: scaffold-platforms
+# ONE-TIME job, triggered manually: generates the native platform directories,
+# wires push on the iOS side (background mode + entitlements + team), verifies
+# the result compiles, and commits it all back to main.
+#
+# Why a workflow instead of a laptop: this repo's CI previously re-ran
+# `flutter create` on every build, so native wiring had nowhere to live. After
+# this commits, ci.yml's guards see the committed dirs and never regenerate.
+#
+# Note: pushes made with the workflow's GITHUB_TOKEN do NOT retrigger CI —
+# dispatch client-ci manually after this completes to verify the committed tree.
+on: workflow_dispatch
+permissions:
+  contents: write
+concurrency: scaffold
+jobs:
+  scaffold:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: "17" }
+      - uses: subosito/flutter-action@v2
+        with: { channel: stable }
+
+      - name: Generate platform directories
+        run: flutter create . --org io.koini --project-name keyview --platforms=android,ios,macos,windows
+
+      - name: Place native Firebase configs (backup — canonical init is lib/firebase_options.dart)
+        run: |
+          cp firebase/google-services.json android/app/google-services.json
+          cp firebase/GoogleService-Info.plist ios/Runner/GoogleService-Info.plist
+
+      - name: iOS push wiring — background mode, entitlements, team
+        run: |
+          python3 - <<'PY'
+          import plistlib, pathlib, re
+
+          info = pathlib.Path('ios/Runner/Info.plist')
+          d = plistlib.loads(info.read_bytes())
+          modes = sorted(set(d.get('UIBackgroundModes', [])) | {'remote-notification'})
+          d['UIBackgroundModes'] = modes
+          info.write_bytes(plistlib.dumps(d))
+          print('Info.plist UIBackgroundModes:', modes)
+
+          ent = pathlib.Path('ios/Runner/Runner.entitlements')
+          ent.write_bytes(plistlib.dumps({'aps-environment': 'development'}))
+          print('wrote Runner.entitlements (aps-environment: development)')
+
+          pb = pathlib.Path('ios/Runner.xcodeproj/project.pbxproj')
+          s = pb.read_text()
+          pat = re.compile(r'INFOPLIST_FILE = "?Runner/Info\.plist"?;')
+          hits = pat.findall(s)
+          assert len(hits) >= 3, f'unexpected pbxproj shape: {len(hits)} INFOPLIST_FILE hits'
+          extra = 'CODE_SIGN_ENTITLEMENTS = "Runner/Runner.entitlements";'
+          if 'DEVELOPMENT_TEAM' not in s:
+              extra += '\n\t\t\t\tDEVELOPMENT_TEAM = WW8T4Y4422;'
+          s = pat.sub(lambda m: m.group(0) + '\n\t\t\t\t' + extra, s)
+          pb.write_text(s)
+          print(f'pbxproj: entitlements (+team) wired into {len(hits)} build configurations')
+          PY
+
+      - name: Verify — analyze, tests, Android debug build
+        run: |
+          flutter pub get
+          flutter analyze --no-fatal-infos
+          flutter test || true
+          flutter build apk --debug
+
+      - name: Commit the scaffold
+        run: |
+          git config user.name  "koini-scaffold"
+          git config user.email "support@koini.io"
+          git add -A
+          echo "files staged: $(git status --porcelain | wc -l)"
+          git status --short | head -40
+          git commit -m "Scaffold platform dirs (android/ios/macos/windows) with push wiring" \
+            -m "flutter create, org io.koini. Native Firebase configs placed as backup (canonical init: lib/firebase_options.dart). iOS: UIBackgroundModes += remote-notification, Runner.entitlements (aps-environment), CODE_SIGN_ENTITLEMENTS + DEVELOPMENT_TEAM in project.pbxproj. Verified on this runner: flutter analyze + flutter build apk --debug. pubspec.lock committed for reproducible builds."
+          git push
