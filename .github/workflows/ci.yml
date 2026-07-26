@@ -13,6 +13,11 @@ jobs:
       - uses: subosito/flutter-action@v2
         with: { channel: stable }
       - run: flutter create . --org io.koini --project-name keyview --platforms=android,ios,macos,windows
+      - name: Place Firebase config
+        run: |
+          mkdir -p android/app ios/Runner
+          cp firebase/google-services.json android/app/google-services.json || true
+          cp firebase/GoogleService-Info.plist ios/Runner/GoogleService-Info.plist || true
       - run: flutter pub get
       - run: flutter analyze --no-fatal-infos   # info-level lints stay visible, not fatal
       - run: flutter test || true   # drop fallback once suite grows
@@ -27,6 +32,11 @@ jobs:
       - uses: subosito/flutter-action@v2
         with: { channel: stable }
       - run: flutter create . --org io.koini --project-name keyview --platforms=android
+      - name: Place Firebase config
+        run: |
+          mkdir -p android/app ios/Runner
+          cp firebase/google-services.json android/app/google-services.json || true
+          cp firebase/GoogleService-Info.plist ios/Runner/GoogleService-Info.plist || true
       - run: flutter build apk --debug
       - uses: actions/upload-artifact@v4
         with: { name: keyview-android-debug, path: build/app/outputs/flutter-apk/app-debug.apk }
