@@ -1,0 +1,113 @@
+name: release-macos
+# Signed + notarized macOS DMG for own-site distribution (keys.koini.io/dl).
+# Manual trigger. Requires these repository secrets:
+#   MACOS_CERT_P12_BASE64   Developer ID Application cert + private key (.p12), base64
+#   MACOS_CERT_P12_PASSWORD password protecting that .p12
+#   ASC_KEY_ID              App Store Connect API key id        (notarization)
+#   ASC_ISSUER_ID           App Store Connect issuer id         (notarization)
+#   ASC_KEY_P8_BASE64       App Store Connect API .p8 key, base64
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write   # attach the DMG to a GitHub Release
+
+jobs:
+  dmg:
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with: { channel: stable }
+      - run: flutter pub get
+      - run: flutter build macos --release
+
+      - name: Import Developer ID certificate
+        env:
+          P12_B64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+          P12_PASS: ${{ secrets.MACOS_CERT_P12_PASSWORD }}
+        run: |
+          set -euo pipefail
+          KC="$RUNNER_TEMP/build.keychain-db"
+          KC_PASS=$(uuidgen)
+          security create-keychain -p "$KC_PASS" "$KC"
+          security set-keychain-settings -lut 21600 "$KC"
+          security unlock-keychain -p "$KC_PASS" "$KC"
+          echo "$P12_B64" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KC" -P "$P12_PASS" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KC_PASS" "$KC" > /dev/null
+          security list-keychains -d user -s "$KC" login.keychain-db
+          rm "$RUNNER_TEMP/cert.p12"
+          security find-identity -v -p codesigning "$KC"
+
+      - name: Sign app (hardened runtime)
+        run: |
+          set -euo pipefail
+          APP="build/macos/Build/Products/Release/KOINIkeyview.app"
+          ID="Developer ID Application: Koini Global LLC (WW8T4Y4422)"
+          # nested code first (frameworks + dylibs), inside-out
+          find "$APP/Contents/Frameworks" -depth \( -name '*.framework' -or -name '*.dylib' \) -print0 |
+            while IFS= read -r -d '' f; do
+              codesign --force --timestamp --options runtime --sign "$ID" "$f"
+            done
+          codesign --force --timestamp --options runtime \
+            --entitlements macos/Runner/Release.entitlements \
+            --sign "$ID" "$APP"
+          codesign --verify --strict --deep --verbose=2 "$APP"
+
+      - name: Package DMG
+        run: |
+          set -euo pipefail
+          VERSION=$(sed -n 's/^version: *\([0-9][0-9.]*\).*/\1/p' pubspec.yaml)
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          APP="build/macos/Build/Products/Release/KOINIkeyview.app"
+          ID="Developer ID Application: Koini Global LLC (WW8T4Y4422)"
+          STAGE="$RUNNER_TEMP/dmg"
+          mkdir -p "$STAGE" dist
+          cp -R "$APP" "$STAGE/"
+          ln -s /Applications "$STAGE/Applications"
+          hdiutil create -volname "KOINIkeyview" -srcfolder "$STAGE" -ov -format UDZO "dist/KOINIkeyview-$VERSION.dmg"
+          codesign --force --timestamp --sign "$ID" "dist/KOINIkeyview-$VERSION.dmg"
+
+      - name: Notarize and staple
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8_B64: ${{ secrets.ASC_KEY_P8_BASE64 }}
+        run: |
+          set -euo pipefail
+          echo "$ASC_KEY_P8_B64" | base64 --decode > "$RUNNER_TEMP/AuthKey.p8"
+          DMG="dist/KOINIkeyview-$VERSION.dmg"
+          OUT=$(xcrun notarytool submit "$DMG" \
+            --key "$RUNNER_TEMP/AuthKey.p8" --key-id "$ASC_KEY_ID" --issuer "$ASC_ISSUER_ID" \
+            --wait --timeout 30m --output-format json) || true
+          echo "$OUT"
+          SUBID=$(echo "$OUT" | jq -r '.id // empty')
+          STATUS=$(echo "$OUT" | jq -r '.status // empty')
+          if [ "$STATUS" != "Accepted" ]; then
+            echo "::error::Notarization status: ${STATUS:-none} — full log follows"
+            [ -n "$SUBID" ] && xcrun notarytool log "$SUBID" \
+              --key "$RUNNER_TEMP/AuthKey.p8" --key-id "$ASC_KEY_ID" --issuer "$ASC_ISSUER_ID" || true
+            exit 1
+          fi
+          xcrun stapler staple "$DMG"
+          spctl -a -t open --context context:primary-signature -vv "$DMG" || echo "spctl check inconclusive (informational only)"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: KOINIkeyview-macos-dmg
+          path: dist/*.dmg
+
+      - name: Attach to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="v$VERSION"
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" \
+              --title "KŌINIkeyview $VERSION (macOS)" \
+              --notes "Signed & notarized macOS DMG. Download, open, drag KOINIkeyview to Applications." \
+              --target "$GITHUB_SHA"
+          gh release upload "$TAG" "dist/KOINIkeyview-$VERSION.dmg" --repo "$GITHUB_REPOSITORY" --clobber
