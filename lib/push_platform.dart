@@ -6,6 +6,7 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart' show kIsWeb, debugPrint;
 
 import 'auth.dart';
+import 'firebase_options.dart';
 import 'push.dart';
 
 /// Bridges the platform's FCM token into [PushService].
@@ -80,10 +81,14 @@ class PushPlatform {
   static Future<bool> _ensureFirebase() async {
     if (_firebaseReady) return true;
     try {
-      // No explicit options: the native config files supply them —
-      // android/app/google-services.json and ios/Runner/GoogleService-Info.plist.
+      // Options are Dart constants (lib/firebase_options.dart), not the native
+      // config files — so init can't fail on a missing Xcode resource membership
+      // or an absent Gradle plugin. The native copies in firebase/ remain as
+      // backup/documentation.
       if (Firebase.apps.isEmpty) {
-        await Firebase.initializeApp();
+        await Firebase.initializeApp(
+          options: DefaultFirebaseOptions.currentPlatform,
+        );
       }
       _firebaseReady = true;
       return true;
