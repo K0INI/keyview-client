@@ -39,6 +39,9 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple: -s -k "$KC_PASS" "$KC" > /dev/null
           security list-keychains -d user -s "$KC" login.keychain-db
           rm "$RUNNER_TEMP/cert.p12"
+          # Apple's Developer ID G2 intermediate (the .p12 carries only the leaf)
+          curl -sf -o "$RUNNER_TEMP/DeveloperIDG2CA.cer" https://www.apple.com/certificateauthority/DeveloperIDG2CA.cer
+          security import "$RUNNER_TEMP/DeveloperIDG2CA.cer" -k "$KC"
           security find-identity -v -p codesigning "$KC"
 
       - name: Sign app (hardened runtime)
