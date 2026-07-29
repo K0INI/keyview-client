@@ -1,0 +1,105 @@
+name: release-ios
+# Signed iOS build uploaded to TestFlight. Manual trigger.
+# Secrets: IOS_DIST_CERT_P12_BASE64 / IOS_DIST_CERT_P12_PASSWORD (Apple
+# Distribution cert) + the ASC_* App Store Connect API key trio (shared with
+# release-macos). The provisioning profile is fetched fresh from Apple's API
+# each run — nothing stored to go stale.
+on:
+  workflow_dispatch:
+
+jobs:
+  testflight:
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with: { channel: stable }
+      - run: flutter pub get
+
+      - name: Import Apple Distribution certificate
+        env:
+          P12_B64: ${{ secrets.IOS_DIST_CERT_P12_BASE64 }}
+          P12_PASS: ${{ secrets.IOS_DIST_CERT_P12_PASSWORD }}
+        run: |
+          set -euo pipefail
+          KC="$RUNNER_TEMP/build.keychain-db"
+          KC_PASS=$(uuidgen)
+          security create-keychain -p "$KC_PASS" "$KC"
+          security set-keychain-settings -lut 21600 "$KC"
+          security unlock-keychain -p "$KC_PASS" "$KC"
+          echo "$P12_B64" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KC" -P "$P12_PASS" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KC_PASS" "$KC" > /dev/null
+          security list-keychains -d user -s "$KC" login.keychain-db
+          rm "$RUNNER_TEMP/cert.p12"
+          curl -sf -o "$RUNNER_TEMP/AppleWWDRCAG3.cer" https://www.apple.com/certificateauthority/AppleWWDRCAG3.cer
+          security import "$RUNNER_TEMP/AppleWWDRCAG3.cer" -k "$KC"
+          security find-identity -v -p codesigning "$KC"
+
+      - name: Fetch provisioning profile from App Store Connect API
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8_B64: ${{ secrets.ASC_KEY_P8_BASE64 }}
+        run: |
+          set -euo pipefail
+          echo "$ASC_KEY_P8_B64" | base64 --decode > "$RUNNER_TEMP/AuthKey.p8"
+          pip3 install --quiet PyJWT cryptography
+          python3 - << 'PY'
+          import jwt, time, json, os, urllib.request, base64, sys
+          key = open(os.environ['RUNNER_TEMP'] + '/AuthKey.p8').read()
+          now = int(time.time())
+          tok = jwt.encode({'iss': os.environ['ASC_ISSUER_ID'], 'iat': now,
+                            'exp': now + 1200, 'aud': 'appstoreconnect-v1'},
+                           key, algorithm='ES256',
+                           headers={'kid': os.environ['ASC_KEY_ID']})
+          url = ('https://api.appstoreconnect.apple.com/v1/profiles'
+                 '?filter[profileType]=IOS_APP_STORE&filter[name]=KOINIkeyview%20AppStore')
+          req = urllib.request.Request(url, headers={'Authorization': 'Bearer ' + tok})
+          with urllib.request.urlopen(req) as r:
+              data = json.load(r)['data']
+          if not data:
+              sys.exit('No profile named "KOINIkeyview AppStore" found')
+          content = data[0]['attributes']['profileContent']
+          out = os.environ['RUNNER_TEMP'] + '/profile.mobileprovision'
+          open(out, 'wb').write(base64.b64decode(content))
+          print('profile bytes:', len(base64.b64decode(content)))
+          PY
+          UUID=$(security cms -D -i "$RUNNER_TEMP/profile.mobileprovision" | plutil -extract UUID raw -o - -)
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          cp "$RUNNER_TEMP/profile.mobileprovision" "$HOME/Library/MobileDevice/Provisioning Profiles/$UUID.mobileprovision"
+          echo "installed profile $UUID"
+
+      - name: Build signed IPA
+        run: |
+          set -euo pipefail
+          flutter build ipa --release --export-options-plist=ios/ExportOptions.plist
+          ls -la build/ios/ipa/
+
+      - name: Upload to TestFlight
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8_B64: ${{ secrets.ASC_KEY_P8_BASE64 }}
+        run: |
+          set -euo pipefail
+          KEY_JSON="$RUNNER_TEMP/asc_key.json"
+          python3 - << 'PY'
+          import base64, json, os
+          p8 = base64.b64decode(os.environ['ASC_KEY_P8_B64']).decode()
+          json.dump({'key_id': os.environ['ASC_KEY_ID'],
+                     'issuer_id': os.environ['ASC_ISSUER_ID'],
+                     'key': p8, 'in_house': False},
+                    open(os.environ['RUNNER_TEMP'] + '/asc_key.json', 'w'))
+          PY
+          IPA=$(ls build/ios/ipa/*.ipa | head -1)
+          fastlane pilot upload --ipa "$IPA" --api_key_path "$KEY_JSON" \
+            --skip_waiting_for_build_processing true
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: KOINIkeyview-ios-ipa
+          path: build/ios/ipa/*.ipa
+          if-no-files-found: ignore
