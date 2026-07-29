@@ -5,6 +5,7 @@ import 'auth.dart';
 import 'brand.dart';
 import 'funnel.dart';
 import 'push_platform.dart';
+import 'desktop_notifier.dart';
 import 'screens/lookup.dart';
 
 Future<void> main() async {
@@ -17,6 +18,9 @@ Future<void> main() async {
   // Push registration is fire-and-forget: it must never delay first paint, and
   // it no-ops entirely on desktop or when Firebase isn't configured.
   unawaited(PushPlatform.start());
+  // Desktop banners poll the feed while the app runs (spec §9). Same rule:
+  // fire-and-forget, fail-soft, mobile/web no-op.
+  unawaited(DesktopNotifier.start());
   runApp(const KeyviewApp());
 }
 

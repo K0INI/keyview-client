@@ -1,7 +1,7 @@
 name: keyview
 description: "KŌINIkeyview — view-only crypto wallet tracker. Eyes on. Keys off."
 publish_to: "none"
-version: 0.1.0+1
+version: 0.1.1+2
 
 environment:
   sdk: ">=3.4.0 <4.0.0"
@@ -13,6 +13,8 @@ dependencies:
   # with the pinned Dart SDK rather than failing to resolve on a hard pin.
   firebase_core: '>=3.6.0 <5.0.0'
   firebase_messaging: '>=15.1.0 <17.0.0'
+  # Desktop banners (macOS local notifications — no APNs needed).
+  flutter_local_notifications: '>=17.0.0 <20.0.0'
   google_fonts: ^6.2.1
   http: ^1.2.0
   intl: ^0.19.0
