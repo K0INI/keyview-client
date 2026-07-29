@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'auth.dart';
@@ -25,12 +25,13 @@ class DesktopNotifier {
   static const _lastSeenKey = 'desktop_notifier_last_seen_ms';
   static const _maxBannersPerTick = 5;
 
-  static final FlutterLocalNotificationsPlugin _plugin =
-      FlutterLocalNotificationsPlugin();
+  /// Handled natively in macos/Runner/MainFlutterWindow.swift. On every
+  /// other platform the call throws MissingPluginException and we go silent.
+  static const MethodChannel _channel =
+      MethodChannel('io.koini.keyview/desktop_notifier');
   static Timer? _timer;
   static bool _started = false;
   static bool _ready = false;
-  static int _notifId = 0;
 
   /// Banners are a macOS feature for now. Windows gets its own treatment in
   /// the Microsoft Store phase; mobile stays on FCM via [PushPlatform].
@@ -47,20 +48,9 @@ class DesktopNotifier {
     if (_started || !supported) return;
     _started = true;
     try {
-      _ready = await _plugin.initialize(
-            const InitializationSettings(
-              macOS: DarwinInitializationSettings(
-                requestAlertPermission: true,
-                requestBadgePermission: false,
-                requestSoundPermission: true,
-                defaultPresentAlert: true,
-                defaultPresentSound: true,
-              ),
-            ),
-          ) ??
-          false;
+      _ready = await _channel.invokeMethod<bool>('init') ?? false;
     } catch (_) {
-      _ready = false; // plugin unavailable on this build — stay silent
+      _ready = false; // no native handler or permission declined — stay silent
     }
     if (!_ready) return;
     await _tick(seed: true);
@@ -97,12 +87,10 @@ class DesktopNotifier {
 
   static Future<void> _show(NotificationEntry e) async {
     try {
-      await _plugin.show(
-        _notifId++ % 1000,
-        'KŌINIkeyview',
-        e.summary,
-        const NotificationDetails(macOS: DarwinNotificationDetails()),
-      );
+      await _channel.invokeMethod('show', <String, String>{
+        'title': 'KŌINIkeyview',
+        'body': e.summary,
+      });
     } catch (_) {
       // A single failed banner must not stop the loop.
     }
