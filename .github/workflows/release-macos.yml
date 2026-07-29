@@ -15,7 +15,7 @@ permissions:
 jobs:
   dmg:
     runs-on: macos-latest
-    timeout-minutes: 60
+    timeout-minutes: 90   # Apple's notary queue took >30m on the team's first submission
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
@@ -84,7 +84,7 @@ jobs:
           DMG="dist/KOINIkeyview-$VERSION.dmg"
           OUT=$(xcrun notarytool submit "$DMG" \
             --key "$RUNNER_TEMP/AuthKey.p8" --key-id "$ASC_KEY_ID" --issuer "$ASC_ISSUER_ID" \
-            --wait --timeout 30m --output-format json) || true
+            --wait --timeout 75m --output-format json) || true
           echo "$OUT"
           SUBID=$(echo "$OUT" | jq -r '.id // empty')
           STATUS=$(echo "$OUT" | jq -r '.status // empty')
@@ -98,6 +98,7 @@ jobs:
           spctl -a -t open --context context:primary-signature -vv "$DMG" || echo "spctl check inconclusive (informational only)"
 
       - uses: actions/upload-artifact@v4
+        if: ${{ always() }}   # keep the signed DMG even if notarization times out
         with:
           name: KOINIkeyview-macos-dmg
           path: dist/*.dmg
