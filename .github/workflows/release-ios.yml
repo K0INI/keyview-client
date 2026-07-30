@@ -45,7 +45,7 @@ jobs:
         run: |
           set -euo pipefail
           echo "$ASC_KEY_P8_B64" | base64 --decode > "$RUNNER_TEMP/AuthKey.p8"
-          pip3 install --quiet PyJWT cryptography
+          pip3 install --quiet --break-system-packages PyJWT cryptography
           python3 - << 'PY'
           import jwt, time, json, os, urllib.request, base64, sys
           key = open(os.environ['RUNNER_TEMP'] + '/AuthKey.p8').read()
