@@ -21,6 +21,7 @@ jobs:
       - uses: subosito/flutter-action@v2
         with: { channel: stable }
       - run: flutter pub get
+      - run: pip3 install --quiet --break-system-packages pillow && python3 tool/gen_icons.py   # brand icon, generated (no binaries in git)
       - run: flutter build macos --release
 
       - name: Import Developer ID certificate
