@@ -39,6 +39,7 @@ jobs:
           if [ ! -d android ]; then
             flutter create . --org io.koini --project-name keyview --platforms=android
           fi
+      - run: pip3 install --quiet --break-system-packages pillow && python3 tool/gen_icons.py   # brand icon, generated (no binaries in git)
       - run: flutter build apk --debug
       # Sideload build: release (debug-signed by the template), arm64-only —
       # small enough to hand to a phone directly.
