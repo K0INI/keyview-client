@@ -29,7 +29,11 @@ class PortfolioScreen extends StatelessWidget {
       snack('Accounts arrive in Beta — watchlists sync then.');
       return;
     }
-    var s = KeyviewAuth.session.value;
+    // Beta finding (Craig Rader, 2026-09-09): this was the one add path that
+    // used the raw cached session — an expired access token made PostgREST
+    // return 401 and the button looked dead. Every other screen already
+    // refreshes first; now this one does too.
+    var s = await KeyviewAuth.ensureFresh() ?? KeyviewAuth.session.value;
     if (s == null) {
       final ok = await Navigator.of(context)
           .push<bool>(MaterialPageRoute(builder: (_) => const SignInScreen()));
