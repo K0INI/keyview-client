@@ -56,10 +56,16 @@ class TokenDetailScreen extends StatelessWidget {
                     children: [
                       Row(children: [
                         CircleAvatar(
-                          backgroundColor: Brand.surface2,
-                          child: Text(h.symbol.isEmpty ? '?' : h.symbol[0],
-                              style: const TextStyle(color: Brand.amber)),
-                        ),
+          backgroundColor: Brand.surface2,
+          foregroundImage: (h.logoUrl != null && h.logoUrl!.isNotEmpty)
+              ? NetworkImage(h.logoUrl!)
+              : null,
+          onForegroundImageError: (h.logoUrl != null && h.logoUrl!.isNotEmpty)
+              ? (_, __) {}
+              : null,
+          child: Text(h.symbol.isEmpty ? '?' : h.symbol[0],
+              style: const TextStyle(color: Brand.amber)),
+        ),
                         const SizedBox(width: 12),
                         Expanded(
                           child: Text(h.name,

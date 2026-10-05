@@ -243,6 +243,12 @@ class _AssetRow extends StatelessWidget {
         onTap: onTap,
         leading: CircleAvatar(
           backgroundColor: Brand.surface2,
+          foregroundImage: (h.logoUrl != null && h.logoUrl!.isNotEmpty)
+              ? NetworkImage(h.logoUrl!)
+              : null,
+          onForegroundImageError: (h.logoUrl != null && h.logoUrl!.isNotEmpty)
+              ? (_, __) {}
+              : null,
           child: Text(h.symbol.isEmpty ? '?' : h.symbol[0],
               style: const TextStyle(color: Brand.amber)),
         ),
@@ -316,6 +322,12 @@ class _UnpricedRow extends StatelessWidget {
         ),
         leading: CircleAvatar(
           backgroundColor: Brand.surface2,
+          foregroundImage: (h.logoUrl != null && h.logoUrl!.isNotEmpty)
+              ? NetworkImage(h.logoUrl!)
+              : null,
+          onForegroundImageError: (h.logoUrl != null && h.logoUrl!.isNotEmpty)
+              ? (_, __) {}
+              : null,
           child: Text(h.symbol.isEmpty ? '?' : h.symbol[0],
               style: const TextStyle(color: Brand.warm3)),
         ),

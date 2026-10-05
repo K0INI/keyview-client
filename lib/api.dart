@@ -70,6 +70,7 @@ class Holding {
   final List<String> priceSources;
   final double? liquidityUsd;
   final String? priceReason;
+  final String? logoUrl;
   const Holding(this.symbol, this.name, this.chain, this.amount, this.priceUsd,
       this.change24h,
       {this.contract,
@@ -77,7 +78,8 @@ class Holding {
       this.priceConfidence = 1,
       this.priceSources = const [],
       this.liquidityUsd,
-      this.priceReason});
+      this.priceReason,
+      this.logoUrl});
   double get valueUsd => amount * priceUsd;
   bool get reliable => priceStatus == 'ok';
 
@@ -95,7 +97,8 @@ class Holding {
           .map((e) => e.toString())
           .toList(),
       liquidityUsd: (j['liquidityUsd'] as num?)?.toDouble(),
-      priceReason: j['priceReason'] as String?);
+      priceReason: j['priceReason'] as String?,
+      logoUrl: j['logoUrl'] as String?);
 }
 
 class TransferEvent {
