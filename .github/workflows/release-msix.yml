@@ -21,6 +21,20 @@ jobs:
       - name: Build Windows release
         shell: bash
         run: flutter pub get && flutter build windows --release
+      - name: Capture Windows store screenshot
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          Add-Type -AssemblyName System.Windows.Forms,System.Drawing
+          $exe = (Get-ChildItem build/windows/x64/runner/Release -Filter *.exe | Select-Object -First 1).FullName
+          Start-Process $exe
+          Start-Sleep -Seconds 30
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          $b = New-Object System.Drawing.Bitmap 1920,1080
+          $g = [System.Drawing.Graphics]::FromImage($b)
+          $g.CopyFromScreen(0,0,0,0,$b.Size)
+          $b.Save("$PWD/dist/windows-screenshot-1.png",[System.Drawing.Imaging.ImageFormat]::Png)
+          Get-ChildItem dist
       - name: Build store MSIX
         shell: bash
         run: |
@@ -53,3 +67,4 @@ EOF
           V=$(git show HEAD:pubspec.yaml | grep "^version:" | cut -d" " -f2 | cut -d+ -f1)
           gh release view v$V --repo $GITHUB_REPOSITORY >/dev/null 2>&1 || gh release create v$V --repo $GITHUB_REPOSITORY --title "KOINIkeyview $V" --notes "Beta builds." --target $GITHUB_SHA
           gh release upload v$V dist/KOINIkeyview-$V.msix --repo $GITHUB_REPOSITORY --clobber
+          if [ -f dist/windows-screenshot-1.png ]; then gh release upload v$V dist/windows-screenshot-1.png --repo $GITHUB_REPOSITORY --clobber; fi
