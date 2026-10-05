@@ -1,0 +1,55 @@
+# release-msix: store-signed MSIX package for the Microsoft Store, attached to GitHub Release v<version>.
+name: release-msix
+on:
+  workflow_dispatch: {}
+permissions:
+  contents: write
+jobs:
+  msix:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - name: Generate icons and MSIX logo
+        shell: bash
+        run: |
+          pip install --quiet pillow
+          python tool/gen_icons.py
+          python -c "import sys; sys.path.insert(0, 'tool'); import gen_icons; gen_icons.mark(512).convert('RGB').save('tool/msix_logo.png')"
+      - name: Build Windows release
+        shell: bash
+        run: flutter pub get && flutter build windows --release
+      - name: Build store MSIX
+        shell: bash
+        run: |
+          set -euo pipefail
+          V=$(grep "^version:" pubspec.yaml | cut -d" " -f2 | cut -d+ -f1)
+          cat >> pubspec.yaml <<EOF
+
+msix_config:
+  display_name: KOINIkeyview
+  publisher_display_name: KOINI
+  identity_name: KOINI.KOINIkeyview
+  publisher: CN=B14603CF-6386-4059-8942-9C561F392904
+  msix_version: $V.0
+  logo_path: tool/msix_logo.png
+  capabilities: internetClient
+  store: true
+  output_path: dist
+  output_name: KOINIkeyview-$V
+EOF
+          mkdir -p dist
+          dart pub global activate msix
+          dart pub global run msix:create --store
+          ls -la dist
+      - name: Attach MSIX to GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          V=$(git show HEAD:pubspec.yaml | grep "^version:" | cut -d" " -f2 | cut -d+ -f1)
+          gh release view v$V --repo $GITHUB_REPOSITORY >/dev/null 2>&1 || gh release create v$V --repo $GITHUB_REPOSITORY --title "KOINIkeyview $V" --notes "Beta builds." --target $GITHUB_SHA
+          gh release upload v$V dist/KOINIkeyview-$V.msix --repo $GITHUB_REPOSITORY --clobber
