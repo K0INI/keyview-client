@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'api.dart';
 import 'brand.dart';
@@ -108,6 +109,7 @@ class Funnel {
                   blurb: (p['blurb'] ?? '') as String,
                   url: (p['url'] ?? '') as String,
                   icon: _icons[p['icon']] ?? Icons.arrow_outward_rounded,
+                  logoUrl: p['logoUrl'] as String?,
                 ))
             .where((d) =>
                 d.id.isNotEmpty &&
@@ -168,12 +170,16 @@ class Funnel {
 class FunnelDestination {
   final String id, label, blurb, url;
   final IconData icon;
+  /// The product's real mark (an SVG served by /v1/promos/logo/:id), when the
+  /// live catalog has one; the Material icon is the fallback.
+  final String? logoUrl;
   const FunnelDestination({
     required this.id,
     required this.label,
     required this.blurb,
     required this.url,
     required this.icon,
+    this.logoUrl,
   });
 }
 
@@ -206,7 +212,14 @@ class FunnelCard extends StatelessWidget {
             ),
             child: Row(
               children: [
-                Icon(destination.icon, size: 19, color: Brand.amber),
+                if (destination.logoUrl != null)
+                  SvgPicture.network(destination.logoUrl!,
+                      width: 22,
+                      height: 22,
+                      placeholderBuilder: (_) =>
+                          Icon(destination.icon, size: 19, color: Brand.amber))
+                else
+                  Icon(destination.icon, size: 19, color: Brand.amber),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
