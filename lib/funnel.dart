@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:url_launcher/url_launcher.dart';
 import 'api.dart';
 import 'brand.dart';
 
@@ -9,6 +11,11 @@ import 'brand.dart';
 /// KŌINIkeyview earns nothing directly (§20.1). Its whole job is to send
 /// engaged people to the rest of the Koini family, so these handoffs and the
 /// counters behind them are the actual measure of success (§1.3).
+///
+/// Since 0.1.6 the roster is LIVE: the backend reads apps.koini.io and turns
+/// every product card there into a promo (GET /v1/promos), so editing that
+/// page edits the ads — no app release. A small built-in fallback keeps the
+/// slot working offline or if the catalog is ever unreachable.
 ///
 /// Analytics are AGGREGATE COUNTERS ONLY — an event name and nothing else.
 /// No user id, no address, no device id, no advertising identifier. That is
@@ -31,14 +38,90 @@ class Funnel {
     icon: Icons.candlestick_chart_rounded,
   );
 
-  static const networth = FunnelDestination(
-    id: 'networth',
-    label: 'Hide your traffic with NetWorth',
-    blurb:
-        'Your wallet is public. Your browsing does not have to be — NetWorth is the family VPN.',
-    url: 'https://networthvpn.com',
-    icon: Icons.vpn_lock_rounded,
-  );
+  /// Shown until /v1/promos answers, and whenever it cannot.
+  static const fallbackPromos = [
+    FunnelDestination(
+      id: 'koinivpn',
+      label: 'KŌINIvpn',
+      blurb:
+          'Your wallet is public. Your browsing does not have to be — private, encrypted browsing built for crypto.',
+      url: 'https://vpn.koini.io',
+      icon: Icons.vpn_lock_rounded,
+    ),
+    FunnelDestination(
+      id: 'koinikeystickos',
+      label: 'KŌINIkeystickOS',
+      blurb: 'Boot a computer from the stick and keep your keys off every screen.',
+      url: 'https://keystick.koini.io',
+      icon: Icons.usb_rounded,
+    ),
+    FunnelDestination(
+      id: 'koinisend',
+      label: 'KŌINIsend',
+      blurb: 'The safest way to send crypto — a transfer-only self-custody wallet.',
+      url: 'https://send.koini.io',
+      icon: Icons.send_rounded,
+    ),
+    koini,
+  ];
+
+  /// Backend icon names → Material icons. Anything unknown gets the generic
+  /// outward arrow, so new catalog entries can never break the slot.
+  static const _icons = <String, IconData>{
+    'vpn_lock': Icons.vpn_lock_rounded,
+    'usb': Icons.usb_rounded,
+    'swap_horiz': Icons.swap_horiz_rounded,
+    'receipt_long': Icons.receipt_long_rounded,
+    'menu_book': Icons.menu_book_rounded,
+    'edit_note': Icons.edit_note_rounded,
+    'alt_route': Icons.alt_route_rounded,
+    'send': Icons.send_rounded,
+    'visibility': Icons.visibility_rounded,
+    'alarm': Icons.alarm_rounded,
+    'sell': Icons.sell_rounded,
+    'account_balance_wallet': Icons.account_balance_wallet_rounded,
+    'candlestick_chart': Icons.candlestick_chart_rounded,
+    'casino': Icons.casino_rounded,
+    'emergency': Icons.emergency_rounded,
+    'storefront': Icons.storefront_rounded,
+    'arrow_outward': Icons.arrow_outward_rounded,
+  };
+
+  static List<FunnelDestination>? _promoCache;
+
+  /// The live roster, fetched once per app run. Never throws; always returns
+  /// at least the fallback list.
+  static Future<List<FunnelDestination>> promos() async {
+    final cached = _promoCache;
+    if (cached != null) return cached;
+    try {
+      final r = await http
+          .get(Uri.parse('${KeyviewApi.base}/v1/promos'))
+          .timeout(const Duration(seconds: 8));
+      if (r.statusCode == 200) {
+        final body = jsonDecode(r.body) as Map<String, dynamic>;
+        final rows = (body['promos'] as List? ?? [])
+            .whereType<Map<String, dynamic>>()
+            .map((p) => FunnelDestination(
+                  id: (p['id'] ?? '') as String,
+                  label: (p['label'] ?? '') as String,
+                  blurb: (p['blurb'] ?? '') as String,
+                  url: (p['url'] ?? '') as String,
+                  icon: _icons[p['icon']] ?? Icons.arrow_outward_rounded,
+                ))
+            .where((d) =>
+                d.id.isNotEmpty &&
+                d.label.isNotEmpty &&
+                d.blurb.isNotEmpty &&
+                d.url.startsWith('https://'))
+            .toList();
+        if (rows.isNotEmpty) return _promoCache = rows;
+      }
+    } catch (_) {
+      // The slot must never be a reason the app feels broken.
+    }
+    return fallbackPromos;
+  }
 
   /// Events the funnel reports. Named up front so an accidental
   /// `track('user_0x1234…')` can never happen — only these strings are sent.
@@ -58,9 +141,11 @@ class Funnel {
   /// and silently drops anything not on the allow-list.
   static Future<void> track(String event, {String? destination}) async {
     if (!_allowed.contains(event)) return;
-    // The only extra dimension permitted is which Koini destination was tapped,
-    // and only from the fixed set of destination ids.
-    final dest = destination != null && _destIds.contains(destination)
+    // The only extra dimension permitted is which Koini destination was
+    // tapped. Destinations are now the live roster's slugs, so the guard is
+    // shape (a short lowercase slug) rather than a fixed list — still never
+    // anything user-derived.
+    final dest = destination != null && _slug.hasMatch(destination)
         ? destination
         : null;
     try {
@@ -74,7 +159,7 @@ class Funnel {
     }
   }
 
-  static const _destIds = {'koiniswap', 'koini', 'networth'};
+  static final _slug = RegExp(r'^[a-z0-9-]{1,24}$');
 
   /// Destinations offered on a token view, in priority order.
   static const forToken = [koiniswap, koini];
@@ -107,6 +192,9 @@ class FunnelCard extends StatelessWidget {
           borderRadius: BorderRadius.circular(14),
           onTap: () {
             Funnel.track(Funnel.evHandoff, destination: destination.id);
+            // The handoff itself: open the destination in the system browser.
+            launchUrl(Uri.parse(destination.url),
+                mode: LaunchMode.externalApplication);
             onTap?.call();
           },
           child: Container(
@@ -143,4 +231,45 @@ class FunnelCard extends StatelessWidget {
           ),
         ),
       );
+}
+
+/// The portfolio slot since 0.1.6: one card at a time from the live roster,
+/// cycling with a quiet fade every ten seconds.
+class PromoCarousel extends StatefulWidget {
+  const PromoCarousel({super.key});
+
+  @override
+  State<PromoCarousel> createState() => _PromoCarouselState();
+}
+
+class _PromoCarouselState extends State<PromoCarousel> {
+  List<FunnelDestination> _promos = Funnel.fallbackPromos;
+  int _i = 0;
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    Funnel.promos().then((p) {
+      if (mounted) setState(() => _promos = p);
+    });
+    _timer = Timer.periodic(const Duration(seconds: 10), (_) {
+      if (mounted) setState(() => _i = (_i + 1) % _promos.length);
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final d = _promos[_i % _promos.length];
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 600),
+      child: FunnelCard(key: ValueKey(d.id), destination: d),
+    );
+  }
 }

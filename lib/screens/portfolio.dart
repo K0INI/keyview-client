@@ -108,12 +108,11 @@ class PortfolioScreen extends StatelessWidget {
                       ),
                     ),
                   ),
-                  // NetWorth framing (spec §4.8): shown right where the point
-                  // lands — a stranger's whole balance sheet just rendered from
-                  // a public address, including theirs.
+                  // Family handoff slot (spec §4.8): one quiet card, now a
+                  // rotation served from apps.koini.io via /v1/promos.
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: FunnelCard(destination: Funnel.networth),
+                    child: PromoCarousel(),
                   ),
                   if (p.holdings.isNotEmpty && p.totalUsd > 0) ...[
                     const SizedBox(height: 8),

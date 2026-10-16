@@ -97,9 +97,16 @@ class KeyviewAuth {
     }
   }
 
+  /// The fixed store-review account (see backend /v1/review-login). Its only
+  /// power is an empty watch-only account, so review teams always have
+  /// reusable, non-expiring credentials.
+  static const _reviewEmail = 'review@koini.io';
+
   /// Sends the 6-digit code. Returns null on success, or an error message.
   static Future<String?> sendCode(String email) async {
     if (!SupabaseConfig.enabled) return 'Accounts arrive in Beta.';
+    // The reviewer's code is fixed, so there is nothing to email.
+    if (email.trim().toLowerCase() == _reviewEmail) return null;
     try {
       final r = await http
           .post(Uri.parse('${SupabaseConfig.url}/auth/v1/otp'),
@@ -116,6 +123,23 @@ class KeyviewAuth {
   /// Verifies the code and stores the session. Null on success.
   static Future<String?> verifyCode(String email, String code) async {
     if (!SupabaseConfig.enabled) return 'Accounts arrive in Beta.';
+    if (email.trim().toLowerCase() == _reviewEmail) {
+      try {
+        final r = await http
+            .post(Uri.parse('${KeyviewApi.base}/v1/review-login'),
+                headers: {'content-type': 'application/json'},
+                body: jsonEncode({'email': email.trim(), 'code': code.trim()}))
+            .timeout(const Duration(seconds: 15));
+        if (r.statusCode == 200) {
+          _store(jsonDecode(r.body) as Map<String, dynamic>,
+              fallbackEmail: email);
+          return null;
+        }
+        return 'That code is not valid.';
+      } catch (_) {
+        return 'Network error — try again.';
+      }
+    }
     try {
       final r = await http
           .post(Uri.parse('${SupabaseConfig.url}/auth/v1/verify'),
