@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 import '../api.dart';
 import '../auth.dart';
 import '../brand.dart';
+import '../money.dart';
 import '../supabase_config.dart';
 import '../watch.dart';
 import 'alarm_config.dart';
@@ -361,7 +361,10 @@ class _WatchlistScreenState extends State<WatchlistScreen> {
 
     return Column(
       children: [
-        _totalCard(visible),
+        ValueListenableBuilder<int>(
+          valueListenable: Money.version,
+          builder: (context, _, __) => _totalCard(visible),
+        ),
         if (tags.isNotEmpty) _tagBar(tags),
         Expanded(
           child: canReorder
@@ -396,7 +399,6 @@ class _WatchlistScreenState extends State<WatchlistScreen> {
   /// Combined value of the wallets currently listed. With a tag filter on,
   /// this is the total for that tag — it always matches the rows on screen.
   Widget _totalCard(List<WatchedAddress> visible) {
-    final money = NumberFormat.currency(symbol: r'$');
     var sum = 0.0;
     var counted = 0, missing = 0;
     for (final w in visible) {
@@ -448,7 +450,7 @@ class _WatchlistScreenState extends State<WatchlistScreen> {
                         strokeWidth: 2, color: Brand.amber)),
             ]),
             const SizedBox(height: 6),
-            Text(counted == 0 ? '—' : money.format(sum),
+            Text(counted == 0 ? '—' : Money.format(sum),
                 style: Theme.of(context)
                     .textTheme
                     .headlineLarge

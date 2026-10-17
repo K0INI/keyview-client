@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:intl/intl.dart';
 import '../api.dart';
 import '../brand.dart';
+import '../money.dart';
 import '../funnel.dart';
 
 /// Per-holding detail: position, price, chain, contract, explorer reference.
@@ -11,8 +11,7 @@ class TokenDetailScreen extends StatelessWidget {
   final Holding h;
   const TokenDetailScreen({super.key, required this.h});
 
-  String _price(double v) =>
-      v >= 1 ? NumberFormat.currency(symbol: r'$').format(v) : '\$${v.toStringAsPrecision(3)}';
+  String _price(double v) => Money.formatPrice(v);
 
   String _shorten(String s) =>
       s.length > 16 ? '${s.substring(0, 8)}…${s.substring(s.length - 6)}' : s;
@@ -29,7 +28,6 @@ class TokenDetailScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final money = NumberFormat.currency(symbol: r'$');
     final up = h.change24h >= 0;
     final explorer = KeyviewApi.explorerTokenUrl(h) ??
         (KeyviewApi.explorers[h.chain] ?? '');
@@ -82,7 +80,7 @@ class TokenDetailScreen extends StatelessWidget {
                       const SizedBox(height: 16),
                       Text('POSITION VALUE', style: Brand.micro()),
                       const SizedBox(height: 4),
-                      Text(money.format(h.valueUsd),
+                      Text(Money.format(h.valueUsd),
                           style: Theme.of(context)
                               .textTheme
                               .headlineLarge

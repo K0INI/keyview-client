@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../auth.dart';
 import '../brand.dart';
+import '../money.dart';
 import '../supabase_config.dart';
 import 'notifications.dart';
 import 'sign_in.dart';
@@ -15,6 +16,86 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   bool _busy = false;
+
+  /// Currency chooser. Converting is display-only — every price, total and
+  /// alarm threshold stays in USD underneath, so switching back and forth can
+  /// never change what the app is actually tracking.
+  Future<void> _pickCurrency() async {
+    final chosen = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: Brand.surface,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(18))),
+      builder: (ctx) => SafeArea(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+              maxHeight: MediaQuery.of(ctx).size.height * 0.75),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 18, 20, 10),
+                child: Row(children: [
+                  Text('DISPLAY CURRENCY', style: Brand.micro()),
+                  const Spacer(),
+                  IconButton(
+                    onPressed: () => Navigator.of(ctx).pop(),
+                    icon: const Icon(Icons.close_rounded,
+                        size: 18, color: Brand.warm3),
+                  ),
+                ]),
+              ),
+              Flexible(
+                child: ListView.builder(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  itemCount: Money.currencies.length,
+                  itemBuilder: (_, i) {
+                    final c = Money.currencies[i];
+                    final selected = c.code == Money.code;
+                    return ListTile(
+                      dense: true,
+                      leading: SizedBox(
+                        width: 44,
+                        child: Text(c.symbol.trim(),
+                            style: TextStyle(
+                                color: selected ? Brand.amber : Brand.warm,
+                                fontSize: 15,
+                                fontWeight: FontWeight.w600)),
+                      ),
+                      title: Text(c.name,
+                          style: TextStyle(
+                              color: selected ? Brand.amber : Brand.warm,
+                              fontSize: 14)),
+                      subtitle: Text(c.code,
+                          style: const TextStyle(
+                              color: Brand.warm3, fontSize: 11)),
+                      trailing: selected
+                          ? const Icon(Icons.check_rounded,
+                              size: 18, color: Brand.amber)
+                          : null,
+                      onTap: () => Navigator.of(ctx).pop(c.code),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (chosen == null) return;
+    await Money.setCurrency(chosen);
+    if (!mounted) return;
+    setState(() {});
+    if (Money.rateMissing) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        backgroundColor: Brand.surface2,
+        content: Text("Today's rate isn't available, so values stay in US dollars.",
+            style: TextStyle(color: Brand.warm)),
+      ));
+    }
+  }
 
   Future<void> _signIn() async {
     await Navigator.of(context)
@@ -106,6 +187,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ],
               ]),
 
+              _section('DISPLAY'),
+              _card([
+                ValueListenableBuilder<int>(
+                  valueListenable: Money.version,
+                  builder: (context, _, __) => _tile(
+                    Icons.payments_outlined,
+                    'Currency',
+                    trailingText:
+                        '${Money.current.code} · ${Money.current.symbol.trim()}',
+                    onTap: _pickCurrency,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                const Text(
+                    'Holdings are priced in US dollars and converted for display at the day\u2019s rate.',
+                    style: TextStyle(
+                        color: Brand.warm3, fontSize: 12, height: 1.5)),
+              ]),
+
               _section('ALERTS'),
               _card([
                 _tile(Icons.notifications_none_rounded, 'Notification history',
@@ -188,7 +288,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       );
 
   Widget _tile(IconData icon, String label,
-          {VoidCallback? onTap, bool danger = false}) =>
+          {VoidCallback? onTap, bool danger = false, String? trailingText}) =>
       ListTile(
         contentPadding: EdgeInsets.zero,
         dense: true,
@@ -197,8 +297,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
         title: Text(label,
             style: TextStyle(
                 color: danger ? Brand.down : Brand.warm, fontSize: 14)),
-        trailing: const Icon(Icons.chevron_right_rounded,
-            size: 18, color: Brand.warm3),
+        trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+          if (trailingText != null)
+            Text(trailingText,
+                style: const TextStyle(color: Brand.warm2, fontSize: 13)),
+          const SizedBox(width: 4),
+          const Icon(Icons.chevron_right_rounded,
+              size: 18, color: Brand.warm3),
+        ]),
         onTap: onTap,
       );
 }

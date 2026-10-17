@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import '../api.dart';
 import '../auth.dart';
 import '../brand.dart';
+import '../money.dart';
 import '../funnel.dart';
 import '../supabase_config.dart';
 import '../watch.dart';
@@ -48,7 +49,14 @@ class PortfolioScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final money = NumberFormat.currency(symbol: r'$');
+    // Rebuild whenever the display currency or its rate changes.
+    return ValueListenableBuilder<int>(
+      valueListenable: Money.version,
+      builder: (context, _, __) => _scaffold(context),
+    );
+  }
+
+  Widget _scaffold(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: Row(mainAxisSize: MainAxisSize.min, children: [
@@ -91,7 +99,7 @@ class PortfolioScreen extends StatelessWidget {
                               Text('SAMPLE DATA', style: Brand.micro(size: 9)),
                           ]),
                           const SizedBox(height: 6),
-                          Text(money.format(p.totalUsd),
+                          Text(Money.format(p.totalUsd),
                               style: Theme.of(context)
                                   .textTheme
                                   .headlineLarge
@@ -121,7 +129,6 @@ class PortfolioScreen extends StatelessWidget {
                   const SizedBox(height: 8),
                   ...p.holdings.map((h) => _AssetRow(
                         h: h,
-                        money: money,
                         onTap: () => Navigator.of(context).push(
                           MaterialPageRoute(
                               builder: (_) => TokenDetailScreen(h: h)),
@@ -229,9 +236,8 @@ class _AllocationCard extends StatelessWidget {
 
 class _AssetRow extends StatelessWidget {
   final Holding h;
-  final NumberFormat money;
   final VoidCallback onTap;
-  const _AssetRow({required this.h, required this.money, required this.onTap});
+  const _AssetRow({required this.h, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -258,7 +264,7 @@ class _AssetRow extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.center,
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
-            Text(money.format(h.valueUsd),
+            Text(Money.format(h.valueUsd),
                 style: const TextStyle(
                     color: Brand.warm, fontWeight: FontWeight.w600)),
             Text('${up ? '+' : ''}${h.change24h.toStringAsFixed(1)}%',
