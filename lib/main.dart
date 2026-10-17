@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'auth.dart';
 import 'brand.dart';
 import 'funnel.dart';
+import 'money.dart';
 import 'push_platform.dart';
 import 'desktop_notifier.dart';
 import 'screens/lookup.dart';
@@ -17,6 +18,9 @@ Future<void> main() async {
   Funnel.track(Funnel.evAppOpen);
   // Push registration is fire-and-forget: it must never delay first paint, and
   // it no-ops entirely on desktop or when Firebase isn't configured.
+  // Display currency: restores the saved choice and refreshes rates. Values
+  // stay in USD until rates arrive, so this never blocks or blanks a screen.
+  unawaited(Money.init());
   unawaited(PushPlatform.start());
   // Desktop banners poll the feed while the app runs (spec §9). Same rule:
   // fire-and-forget, fail-soft, mobile/web no-op.
