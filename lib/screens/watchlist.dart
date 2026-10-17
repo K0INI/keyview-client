@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import '../api.dart';
 import '../auth.dart';
 import '../brand.dart';
@@ -25,6 +26,16 @@ class _WatchlistScreenState extends State<WatchlistScreen> {
   String? _error;
   String? _tagFilter;
   bool _savingOrder = false;
+
+  /// Per-address reliable totals, keyed by lowercased address. An address is
+  /// absent until its portfolio has been fetched; addresses whose fetch failed
+  /// land in [_unavailable] instead, so the headline total never silently
+  /// includes a guess.
+  final Map<String, double> _totals = {};
+  final Set<String> _unavailable = {};
+  bool _loadingTotals = false;
+  /// Guards against a slow batch from a previous load overwriting a newer one.
+  int _totalsRun = 0;
 
   @override
   void initState() {
@@ -63,9 +74,59 @@ class _WatchlistScreenState extends State<WatchlistScreen> {
             _tagFilter = null;
           }
         });
+        _loadTotals(items);
       }
     } catch (_) {
       if (mounted) setState(() => _error = 'Could not load your watchlist.');
+    }
+  }
+
+  /// Fetches each watched address's portfolio and keeps its reliable total,
+  /// so the watchlist can show one combined figure. Runs a few at a time to
+  /// stay polite to the backend, and updates as each batch lands rather than
+  /// making the user wait for the slowest wallet.
+  ///
+  /// A failed fetch returns sample data (see KeyviewApi.portfolio), which must
+  /// never be added to a real total — those addresses are marked unavailable
+  /// and the header says so instead of quietly under- or over-counting.
+  Future<void> _loadTotals(List<WatchedAddress> items) async {
+    final run = ++_totalsRun;
+    if (!mounted) return;
+    setState(() {
+      _loadingTotals = true;
+      _totals.removeWhere((k, _) =>
+          !items.any((w) => w.address.toLowerCase() == k));
+      _unavailable.removeWhere((k) =>
+          !items.any((w) => w.address.toLowerCase() == k));
+    });
+    const batch = 4;
+    for (var i = 0; i < items.length; i += batch) {
+      final slice = items.skip(i).take(batch).toList();
+      final results =
+          await Future.wait(slice.map<Future<MapEntry<String, Portfolio?>>>((w) async {
+        try {
+          return MapEntry(w.address.toLowerCase(),
+              await KeyviewApi.portfolio(w.address));
+        } catch (_) {
+          return MapEntry(w.address.toLowerCase(), null);
+        }
+      }));
+      if (!mounted || run != _totalsRun) return;
+      setState(() {
+        for (final e in results) {
+          final p = e.value;
+          if (p == null || p.isMock) {
+            _totals.remove(e.key);
+            _unavailable.add(e.key);
+          } else {
+            _unavailable.remove(e.key);
+            _totals[e.key] = p.totalUsd;
+          }
+        }
+      });
+    }
+    if (mounted && run == _totalsRun) {
+      setState(() => _loadingTotals = false);
     }
   }
 
@@ -300,6 +361,7 @@ class _WatchlistScreenState extends State<WatchlistScreen> {
 
     return Column(
       children: [
+        _totalCard(visible),
         if (tags.isNotEmpty) _tagBar(tags),
         Expanded(
           child: canReorder
@@ -328,6 +390,74 @@ class _WatchlistScreenState extends State<WatchlistScreen> {
               style: Brand.micro(color: Brand.amber, size: 10)),
         ),
       ],
+    );
+  }
+
+  /// Combined value of the wallets currently listed. With a tag filter on,
+  /// this is the total for that tag — it always matches the rows on screen.
+  Widget _totalCard(List<WatchedAddress> visible) {
+    final money = NumberFormat.currency(symbol: r'$');
+    var sum = 0.0;
+    var counted = 0, missing = 0;
+    for (final w in visible) {
+      final v = _totals[w.address.toLowerCase()];
+      if (v != null) {
+        sum += v;
+        counted++;
+      } else {
+        missing++;
+      }
+    }
+    final unavailable = visible
+        .where((w) => _unavailable.contains(w.address.toLowerCase()))
+        .length;
+    final n = visible.length;
+
+    String note;
+    if (counted == 0 && _loadingTotals) {
+      note = n == 1 ? 'adding up 1 wallet…' : 'adding up $n wallets…';
+    } else if (missing == 0) {
+      note = n == 1 ? 'across 1 wallet' : 'across $n wallets';
+    } else if (unavailable > 0 && !_loadingTotals) {
+      note = 'across $counted of $n wallets · $unavailable unavailable';
+    } else {
+      note = 'across $counted of $n wallets…';
+    }
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Brand.surface,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: Brand.line),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(children: [
+              Text('TOTAL WATCHED', style: Brand.micro()),
+              const Spacer(),
+              if (_loadingTotals)
+                const SizedBox(
+                    width: 12,
+                    height: 12,
+                    child: CircularProgressIndicator(
+                        strokeWidth: 2, color: Brand.amber)),
+            ]),
+            const SizedBox(height: 6),
+            Text(counted == 0 ? '—' : money.format(sum),
+                style: Theme.of(context)
+                    .textTheme
+                    .headlineLarge
+                    ?.copyWith(fontWeight: FontWeight.w600)),
+            const SizedBox(height: 4),
+            Text(note, style: Brand.micro(size: 10)),
+          ],
+        ),
+      ),
     );
   }
 
