@@ -1,0 +1,56 @@
+# Push an already-uploaded TestFlight build to the EXTERNAL "Public beta" group
+# (submits it for Beta App Review and notifies testers). release-ios.yml only
+# uploads; internal testers get it automatically, external testers do not.
+name: testflight-distribute
+on:
+  workflow_dispatch:
+    inputs:
+      build_number:
+        description: "TestFlight build number (pubspec +N). Empty = current pubspec."
+        required: false
+        default: ""
+      changelog:
+        description: "What to Test (shown to testers, read by Beta App Review)"
+        required: false
+        default: "Fixes display currency: choosing euro (or any currency) now converts every figure. Rates are remembered on the device and the app says why if a rate ever cannot be fetched."
+permissions:
+  contents: read
+jobs:
+  distribute:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+      - run: gem install fastlane -N --no-document
+      - name: Distribute to external group
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8_B64: ${{ secrets.ASC_KEY_P8_BASE64 }}
+          IN_BUILD: ${{ github.event.inputs.build_number }}
+          IN_CHANGELOG: ${{ github.event.inputs.changelog }}
+        run: |
+          set -euo pipefail
+          python3 - << 'PY'
+          import base64, json, os
+          p8 = base64.b64decode(os.environ['ASC_KEY_P8_B64']).decode()
+          json.dump({'key_id': os.environ['ASC_KEY_ID'],
+                     'issuer_id': os.environ['ASC_ISSUER_ID'],
+                     'key': p8, 'in_house': False},
+                    open(os.environ['RUNNER_TEMP'] + '/asc_key.json', 'w'))
+          PY
+          BUILD="${IN_BUILD:-$(grep '^version:' pubspec.yaml | cut -d'+' -f2 | tr -d ' ')}"
+          VERSION=$(grep '^version:' pubspec.yaml | cut -d' ' -f2 | cut -d+ -f1)
+          echo "Distributing $VERSION ($BUILD) to Public beta"
+          fastlane pilot distribute \
+            --api_key_path "$RUNNER_TEMP/asc_key.json" \
+            --app_identifier io.koini.keyview \
+            --app_version "$VERSION" \
+            --build_number "$BUILD" \
+            --distribute_external true \
+            --groups "Public beta" \
+            --notify_external_testers true \
+            --changelog "$IN_CHANGELOG" \
+            --beta_app_review_info "contact_email:support@koini.io,contact_first_name:Luis,contact_last_name:Delgado,contact_phone:+13026650059,demo_account_required:false"
