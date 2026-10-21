@@ -4,7 +4,9 @@ import '../auth.dart';
 import '../brand.dart';
 import '../funnel.dart';
 import '../push.dart';
+import '../si.dart';
 import '../watch.dart';
+import 'settings.dart';
 
 /// Alarm settings for one watched address (spec §4.5, defaults §20.5).
 ///
@@ -24,9 +26,11 @@ class _AlarmConfigScreenState extends State<AlarmConfigScreen> {
   bool _saving = false;
   String? _error;
   String? _thresholdError;
+  String? _callMinError;
 
   late final TextEditingController _thresholdCtrl = TextEditingController();
   late final TextEditingController _tokensCtrl = TextEditingController();
+  late final TextEditingController _callMinCtrl = TextEditingController();
 
   /// Digest windows offered, in minutes. 10 is the spec default.
   static const _windows = [5, 10, 15, 30, 60];
@@ -41,6 +45,7 @@ class _AlarmConfigScreenState extends State<AlarmConfigScreen> {
   void dispose() {
     _thresholdCtrl.dispose();
     _tokensCtrl.dispose();
+    _callMinCtrl.dispose();
     super.dispose();
   }
 
@@ -67,6 +72,7 @@ class _AlarmConfigScreenState extends State<AlarmConfigScreen> {
         _thresholdCtrl.text =
             a.valueThresholdUsd == null ? '' : _plain(a.valueThresholdUsd!);
         _tokensCtrl.text = a.tokenFilter == 'all' ? '' : a.tokenFilter;
+        _callMinCtrl.text = a.callMinUsd == null ? '' : _plain(a.callMinUsd!);
       });
     } catch (_) {
       if (mounted) {
@@ -93,11 +99,25 @@ class _AlarmConfigScreenState extends State<AlarmConfigScreen> {
       setState(() => _thresholdError = t.error);
       return;
     }
-    setState(() { _thresholdError = null; _saving = true; });
+    // Call minimum: blank means the $1,000 default (stored as null); anything
+    // entered must clear the backend's $100 floor so saved settings never lie.
+    final cm = AlarmFormat.parseThreshold(_callMinCtrl.text);
+    if (a.callEnabled && !cm.ok) {
+      setState(() => _callMinError = cm.error);
+      return;
+    }
+    if (a.callEnabled && cm.value != null && cm.value! < Alarm.callFloorUsd) {
+      setState(() => _callMinError =
+          'Calls need \$${Alarm.callFloorUsd.toStringAsFixed(0)} or more.');
+      return;
+    }
+    setState(() { _thresholdError = null; _callMinError = null; _saving = true; });
 
     final next = a.copyWith(
       valueThresholdUsd: t.value,
       clearThreshold: t.value == null,
+      callMinUsd: a.callEnabled ? cm.value : null,
+      clearCallMin: !a.callEnabled || cm.value == null,
       tokenFilter: AlarmFormat.parseTokenFilter(_tokensCtrl.text),
       // Always re-stamp the offset: the user may have travelled since the
       // alarm was created, and quiet hours are evaluated server-side.
@@ -317,6 +337,9 @@ class _AlarmConfigScreenState extends State<AlarmConfigScreen> {
             ],
           ]),
 
+          _sectionLabel('PHONE CALLS · SI'),
+          _callCard(a),
+
           const SizedBox(height: 20),
           SizedBox(
             height: 50,
@@ -336,6 +359,101 @@ class _AlarmConfigScreenState extends State<AlarmConfigScreen> {
             child: Text('alerts are best-effort · never a security system',
                 style: Brand.micro(size: 9.5)),
           ),
+        ],
+      );
+
+  /// SI call alerts for this wallet. Three states: ready (toggle + minimum),
+  /// SI active but no verified phone, or no SI yet — the locked states link to
+  /// Settings rather than burying a paywall inside an alarm form.
+  Widget _callCard(Alarm a) => ValueListenableBuilder<SiStatus>(
+        valueListenable: SiService.status,
+        builder: (context, st, _) => ValueListenableBuilder<String?>(
+          valueListenable: SiService.phone,
+          builder: (context, ph, __) {
+            final ready = st == SiStatus.active && ph != null;
+            if (!ready) {
+              return _card([
+                _line(
+                    st == SiStatus.active
+                        ? 'Verify your phone to get calls'
+                        : 'Get a phone call for big moves',
+                    st == SiStatus.active
+                        ? 'SI is active. Add the number the COINY agent should '
+                            'call in Settings.'
+                        : 'SI subscribers get a call from the COINY voice agent '
+                            'when a large transaction hits this wallet — and can '
+                            'ask it about their holdings, prices and alerts. '
+                            '45 call-minutes a month, across your KŌINI apps.'),
+                const SizedBox(height: 12),
+                SizedBox(
+                  height: 44,
+                  child: OutlinedButton(
+                    onPressed: () async {
+                      await Navigator.of(context).push(MaterialPageRoute(
+                          builder: (_) => const SettingsScreen()));
+                      if (mounted) setState(() {});
+                    },
+                    child: Text(st == SiStatus.active
+                        ? 'Verify phone in Settings'
+                        : 'Set up SI in Settings'),
+                  ),
+                ),
+              ]);
+            }
+            return _card([
+              SwitchListTile(
+                value: a.callEnabled,
+                activeColor: Brand.amber,
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Call me for big moves',
+                    style: TextStyle(color: Brand.warm, fontSize: 14)),
+                subtitle: Text(
+                    'The COINY agent calls $ph and can answer questions. '
+                    'Quiet hours apply to calls too.',
+                    style: const TextStyle(color: Brand.warm3, fontSize: 11)),
+                onChanged: a.enabled
+                    ? (v) => _update((x) => x.copyWith(callEnabled: v))
+                    : null,
+              ),
+              if (a.callEnabled) ...[
+                const SizedBox(height: 6),
+                _rowLabel('Only call for amounts over'),
+                const SizedBox(height: 6),
+                TextField(
+                  controller: _callMinCtrl,
+                  enabled: a.enabled,
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
+                  style: const TextStyle(color: Brand.warm),
+                  decoration: InputDecoration(
+                    prefixText: '\$ ',
+                    prefixStyle: const TextStyle(color: Brand.warm3),
+                    hintText: '1,000',
+                    hintStyle: const TextStyle(color: Brand.warm3),
+                    errorText: _callMinError,
+                    helperText:
+                        'Blank means \$1,000. Minimum \$100 — calls are for '
+                        'moves that matter.',
+                    helperStyle:
+                        const TextStyle(color: Brand.warm3, fontSize: 10),
+                  ),
+                ),
+              ],
+            ]);
+          },
+        ),
+      );
+
+  Widget _line(String title, String body) => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title,
+              style: const TextStyle(
+                  color: Brand.warm, fontSize: 14, fontWeight: FontWeight.w500)),
+          const SizedBox(height: 4),
+          Text(body,
+              style: const TextStyle(
+                  color: Brand.warm3, fontSize: 12, height: 1.5)),
         ],
       );
 

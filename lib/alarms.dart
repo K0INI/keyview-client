@@ -30,6 +30,13 @@ class Alarm {
   final bool quietHoursEnabled;
   final String quietPreset;
   final int tzOffsetMin;
+  /// SI call alerts (SPEC-KEYVIEW-SI): phone call for big moves on this wallet.
+  final bool callEnabled;
+  final double? callMinUsd;
+
+  /// Calls default to "only above $1,000"; the backend enforces a $100 floor.
+  static const double callDefaultUsd = 1000;
+  static const double callFloorUsd = 100;
 
   const Alarm({
     this.id,
@@ -45,6 +52,8 @@ class Alarm {
     this.quietHoursEnabled = false,
     this.quietPreset = defaultQuietPreset,
     this.tzOffsetMin = 0,
+    this.callEnabled = false,
+    this.callMinUsd,
   });
 
   /// The locked defaults from spec §20.5: batching on with a 10-minute digest
@@ -72,6 +81,8 @@ class Alarm {
       quietHoursEnabled: q['enabled'] == true,
       quietPreset: (q['preset'] as String?) ?? defaultQuietPreset,
       tzOffsetMin: (q['tz_offset_min'] as num?)?.toInt() ?? 0,
+      callEnabled: j['call_enabled'] == true,
+      callMinUsd: (j['call_min_usd'] as num?)?.toDouble(),
     );
   }
 
@@ -108,6 +119,8 @@ class Alarm {
           'preset': quietPreset,
           'tz_offset_min': tzOffsetMin,
         },
+        'call_enabled': callEnabled,
+        'call_min_usd': callMinUsd,
       };
 
   Alarm copyWith({
@@ -123,6 +136,9 @@ class Alarm {
     bool? quietHoursEnabled,
     String? quietPreset,
     int? tzOffsetMin,
+    bool? callEnabled,
+    double? callMinUsd,
+    bool clearCallMin = false,
   }) =>
       Alarm(
         id: id,
@@ -139,6 +155,8 @@ class Alarm {
         quietHoursEnabled: quietHoursEnabled ?? this.quietHoursEnabled,
         quietPreset: quietPreset ?? this.quietPreset,
         tzOffsetMin: tzOffsetMin ?? this.tzOffsetMin,
+        callEnabled: callEnabled ?? this.callEnabled,
+        callMinUsd: clearCallMin ? null : (callMinUsd ?? this.callMinUsd),
       );
 
   /// One-line plain-English description of what this alarm will do.
@@ -161,6 +179,10 @@ class Alarm {
     if (tokenFilter != 'all') parts.add('· $tokenFilter');
     if (batchingEnabled) parts.add('· grouped every ${batchingWindowMin}m');
     if (quietHoursEnabled) parts.add('· quiet $quietPreset');
+    if (callEnabled) {
+      parts.add(
+          '· calls over ${Money.formatCompact(callMinUsd ?? callDefaultUsd)}');
+    }
     return parts.join(' ');
   }
 }
@@ -242,7 +264,7 @@ class AlarmService {
 
   static const _select =
       'id,watched_address_id,direction,value_threshold_usd,token_filter,'
-      'spam_filter,enabled,batching,quiet_hours';
+      'spam_filter,enabled,batching,quiet_hours,call_enabled,call_min_usd';
 
   /// The alarm for one watched address, or null when none has been set.
   static Future<Alarm?> forAddress(Session s, String watchedAddressId) async {

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../auth.dart';
 import '../brand.dart';
 import '../money.dart';
+import '../si.dart';
 import '../supabase_config.dart';
 import 'notifications.dart';
 import 'sign_in.dart';
@@ -16,6 +17,136 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   bool _busy = false;
+  bool _siBusy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Cheap and fail-soft; keeps the SI section honest after store changes.
+    SiService.refresh();
+  }
+
+  // ── SI call alerts ─────────────────────────────────────────────────────────
+
+  Future<void> _subscribe() async {
+    setState(() => _siBusy = true);
+    String? err;
+    if (!SiService.purchasesSupported) {
+      err = 'Subscribing is available in the iPhone and Android apps. '
+          'Once subscribed, SI works here too.';
+    } else {
+      final p = await SiService.monthlyPackage();
+      err = p == null
+          ? 'Could not reach the store — try again.'
+          : await SiService.buy(p);
+    }
+    if (!mounted) return;
+    setState(() => _siBusy = false);
+    if (err != null) _snackText(err);
+  }
+
+  Future<void> _restore() async {
+    setState(() => _siBusy = true);
+    final err = await SiService.restore();
+    if (!mounted) return;
+    setState(() => _siBusy = false);
+    _snackText(err ?? 'SI restored.');
+  }
+
+  Future<void> _verifyPhone() async {
+    final phoneCtrl = TextEditingController();
+    final codeCtrl = TextEditingController();
+    var codeSent = false;
+    String? error;
+    final done = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlg) => AlertDialog(
+          backgroundColor: Brand.surface,
+          title: Text(codeSent ? 'ENTER THE CODE' : 'YOUR PHONE NUMBER',
+              style: Brand.micro()),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                  codeSent
+                      ? 'We texted a 6-digit code to ${phoneCtrl.text.trim()}.'
+                      : 'The COINY agent calls this number for your alerts. '
+                          'We text a code to confirm it’s yours.',
+                  style: const TextStyle(
+                      color: Brand.warm2, fontSize: 12.5, height: 1.5)),
+              const SizedBox(height: 12),
+              if (!codeSent)
+                TextField(
+                  controller: phoneCtrl,
+                  keyboardType: TextInputType.phone,
+                  autofocus: true,
+                  style: const TextStyle(color: Brand.warm),
+                  decoration: InputDecoration(
+                    hintText: '(555) 123-4567',
+                    hintStyle: const TextStyle(color: Brand.warm3),
+                    errorText: error,
+                  ),
+                )
+              else
+                TextField(
+                  controller: codeCtrl,
+                  keyboardType: TextInputType.number,
+                  maxLength: 6,
+                  autofocus: true,
+                  style: const TextStyle(
+                      color: Brand.warm, fontSize: 20, letterSpacing: 6),
+                  decoration: InputDecoration(
+                    counterText: '',
+                    hintText: '000000',
+                    hintStyle: const TextStyle(color: Brand.warm3),
+                    errorText: error,
+                  ),
+                ),
+            ],
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.of(ctx).pop(false),
+                child: const Text('Cancel')),
+            FilledButton(
+              onPressed: () async {
+                if (!codeSent) {
+                  final e = await SiService.sendCode(phoneCtrl.text);
+                  setDlg(() {
+                    error = e;
+                    if (e == null) codeSent = true;
+                  });
+                } else {
+                  final e =
+                      await SiService.verifyCode(phoneCtrl.text, codeCtrl.text);
+                  if (e == null) {
+                    Navigator.of(ctx).pop(true);
+                  } else {
+                    setDlg(() => error = e);
+                  }
+                }
+              },
+              child: Text(codeSent ? 'Verify' : 'Text me a code'),
+            ),
+          ],
+        ),
+      ),
+    );
+    phoneCtrl.dispose();
+    codeCtrl.dispose();
+    if (!mounted) return;
+    setState(() {});
+    if (done == true) _snackText('Phone verified.');
+  }
+
+  void _snackText(String msg) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      backgroundColor: Brand.surface2,
+      content: Text(msg, style: const TextStyle(color: Brand.warm)),
+    ));
+  }
 
   /// Currency chooser. Converting is display-only — every price, total and
   /// alarm threshold stays in USD underneath, so switching back and forth can
@@ -239,6 +370,83 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     'Open a watched address, then its ⋮ menu → Alarm settings.'),
               ]),
 
+              _section('SI CALL ALERTS'),
+              _card([
+                ValueListenableBuilder<SiStatus>(
+                  valueListenable: SiService.status,
+                  builder: (context, st, _) => ValueListenableBuilder<String?>(
+                    valueListenable: SiService.phone,
+                    builder: (context, ph, __) => Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (s == null)
+                          _line('Sign in to use SI.',
+                              'SI calls your phone when a big move hits a wallet '
+                              'you alarm — the COINY voice agent answers questions '
+                              'about your holdings on every call.')
+                        else if (st == SiStatus.active) ...[
+                          _line('SI — active',
+                              '45 call-minutes a month, shared across your KŌINI '
+                              'apps. Turn calls on per alarm: open a watched '
+                              'address → Alarm settings → Phone calls.'),
+                          const Divider(height: 22),
+                          _tile(
+                              Icons.phone_iphone_rounded,
+                              ph == null ? 'Verify your phone' : 'Phone',
+                              trailingText: ph,
+                              onTap: _siBusy ? null : _verifyPhone),
+                          if (ph != null)
+                            _tile(Icons.phone_disabled_rounded, 'Remove phone',
+                                danger: true,
+                                onTap: _siBusy
+                                    ? null
+                                    : () async {
+                                        final ok =
+                                            await SiService.removePhone();
+                                        if (!mounted) return;
+                                        setState(() {});
+                                        _snackText(ok
+                                            ? 'Phone removed — calls off.'
+                                            : 'Could not remove — try again.');
+                                      }),
+                        ] else ...[
+                          _line('A voice agent on call for your wallets.',
+                              'SI calls you when a large transaction hits a wallet '
+                              'you alarm. Ask it about your holdings, prices and '
+                              'recent alerts — it knows your KŌINIkeyview list. '
+                              '\$14.99/month, 45 call-minutes across your KŌINI '
+                              'apps. It reads facts and never gives financial '
+                              'advice.'),
+                          const SizedBox(height: 12),
+                          SizedBox(
+                            height: 46,
+                            child: FilledButton(
+                              onPressed: _siBusy ? null : _subscribe,
+                              child: _siBusy
+                                  ? const SizedBox(
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: Brand.amberInk))
+                                  : const Text('Subscribe to SI'),
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Center(
+                            child: TextButton(
+                                onPressed: _siBusy ? null : _restore,
+                                child: const Text('Restore purchases',
+                                    style: TextStyle(
+                                        color: Brand.warm3, fontSize: 12))),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+              ]),
+
               _section('THE PROMISE'),
               _card([
                 _line('Eyes on. Keys off.',
@@ -257,8 +465,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 _tile(Icons.description_outlined, 'Terms of service',
                     onTap: () => _openDoc('terms')),
                 const Divider(height: 22),
-                _line('Free, with no paid tier.',
-                    'No subscription, no in-app purchase, nothing to cancel.'),
+                _line('Free to use.',
+                    'Watching, alarms and push alerts cost nothing. SI call '
+                    'alerts are the one optional subscription — cancel any time '
+                    'in your app store account.'),
               ]),
 
               const SizedBox(height: 22),

@@ -7,6 +7,7 @@ import 'funnel.dart';
 import 'money.dart';
 import 'push_platform.dart';
 import 'desktop_notifier.dart';
+import 'si.dart';
 import 'screens/lookup.dart';
 
 Future<void> main() async {
@@ -24,6 +25,9 @@ Future<void> main() async {
   // off inside init() and never blocks first paint.
   await Money.init();
   unawaited(PushPlatform.start());
+  // SI entitlement + verified phone. Same contract as push: fire-and-forget,
+  // fail-soft, never blocks first paint; no-ops where purchases don't exist.
+  unawaited(SiService.start());
   // Desktop banners poll the feed while the app runs (spec §9). Same rule:
   // fire-and-forget, fail-soft, mobile/web no-op.
   unawaited(DesktopNotifier.start());

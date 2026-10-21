@@ -186,4 +186,47 @@ void main() {
       expect(a.spamFilter, isTrue);
     });
   });
+
+  group('SI call alerts (SPEC-KEYVIEW-SI §6.3)', () {
+    test('calls default OFF with no minimum stored', () {
+      final a = Alarm.withDefaults('w');
+      expect(a.callEnabled, isFalse);
+      expect(a.callMinUsd, isNull);
+    });
+
+    test('json round-trip carries call_enabled and call_min_usd', () {
+      final j = Alarm.withDefaults('w')
+          .copyWith(callEnabled: true, callMinUsd: 2500)
+          .toJson();
+      expect(j['call_enabled'], true);
+      expect(j['call_min_usd'], 2500);
+      final back = Alarm.fromJson({
+        'watched_address_id': 'w',
+        'call_enabled': true,
+        'call_min_usd': 2500,
+      });
+      expect(back.callEnabled, isTrue);
+      expect(back.callMinUsd, 2500);
+    });
+
+    test('missing columns read as calls-off (old rows stay valid)', () {
+      final back = Alarm.fromJson({'watched_address_id': 'w'});
+      expect(back.callEnabled, isFalse);
+      expect(back.callMinUsd, isNull);
+    });
+
+    test('clearCallMin returns the alarm to the \$1,000 default', () {
+      final a = Alarm.withDefaults('w')
+          .copyWith(callEnabled: true, callMinUsd: 5000);
+      expect(a.copyWith(clearCallMin: true).callMinUsd, isNull);
+      expect(a.copyWith(clearCallMin: true).callEnabled, isTrue);
+    });
+
+    test('summary mentions calls only when enabled', () {
+      final off = Alarm.withDefaults('w');
+      expect(off.summary.contains('calls'), isFalse);
+      final on = off.copyWith(callEnabled: true);
+      expect(on.summary.contains('calls'), isTrue);
+    });
+  });
 }
