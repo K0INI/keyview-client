@@ -176,7 +176,7 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
                     padding: const EdgeInsets.only(left: 4, bottom: 6),
                     child: Text('RECENT ACTIVITY', style: Brand.micro()),
                   ),
-                  _HistorySection(address: address),
+                  _HistorySection(address: address, history: _history),
                 ],
               ),
             ),
@@ -392,7 +392,11 @@ String _agoShort(DateTime t) {
 /// Recent transfers across every chain (Solana shows bare signatures for now).
 class _HistorySection extends StatelessWidget {
   final String address;
-  const _HistorySection({required this.address});
+  /// Created once by [_PortfolioScreenState], not in build(): a FutureBuilder
+  /// given a future built during build refetches on every rebuild, and 0.1.9
+  /// rebuilds this screen on each display-currency change.
+  final Future<History> history;
+  const _HistorySection({required this.address, required this.history});
 
   static String _ago(int timeMs) {
     if (timeMs <= 0) return '';
@@ -409,7 +413,7 @@ class _HistorySection extends StatelessWidget {
   Widget build(BuildContext context) {
     final amt = NumberFormat('#,##0.######');
     return FutureBuilder<History>(
-      future: _history,
+      future: history,
       builder: (context, snap) {
         if (snap.hasError) {
           return Padding(
