@@ -18,9 +18,11 @@ Future<void> main() async {
   Funnel.track(Funnel.evAppOpen);
   // Push registration is fire-and-forget: it must never delay first paint, and
   // it no-ops entirely on desktop or when Firebase isn't configured.
-  // Display currency: restores the saved choice and refreshes rates. Values
-  // stay in USD until rates arrive, so this never blocks or blanks a screen.
-  unawaited(Money.init());
+  // Display currency. Local disk only — restores the saved choice AND the last
+  // known rate table, so first paint is already in the chosen currency even if
+  // the network is slow or /v1/fx is unreachable. The live refresh is fired
+  // off inside init() and never blocks first paint.
+  await Money.init();
   unawaited(PushPlatform.start());
   // Desktop banners poll the feed while the app runs (spec §9). Same rule:
   // fire-and-forget, fail-soft, mobile/web no-op.

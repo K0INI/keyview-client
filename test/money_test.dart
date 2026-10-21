@@ -100,5 +100,54 @@ void main() {
       Money.debugSetCode('XXX');
       expect(Money.code, 'USD');
     });
-  });
+  
+    // ── 0.1.10: the rate table must survive a failed fetch ────────────────
+    //
+    // Beta report (0.1.9, macOS): "when euro is selected dollar value still
+    // shows ... 'Today's rate isn't available, so values stay in US dollars'".
+    // Everything else in the app worked, so the wallet endpoints were fine and
+    // only /v1/fx failed. Before 0.1.10 a single failed fx request left the
+    // app in dollars for the whole session with nothing cached and nothing
+    // logged. These lock in the new behaviour.
+
+    test('a cached rate still converts after a failed refresh', () {
+      Money.debugSetCachedRates({'EUR': 0.89075});
+      Money.debugSetCode('EUR');
+      Money.debugSetError('Timed out after 20s');
+      expect(Money.rateMissing, isFalse,
+          reason: 'a cached rate means we are not stuck in dollars');
+      expect(Money.format(1000), startsWith('\u20AC'));
+      expect(Money.ratesStale, isTrue);
+    });
+
+    test('a fresh rate is not reported as stale', () {
+      Money.debugSetRates({'EUR': 0.89075});
+      Money.debugSetCode('EUR');
+      expect(Money.ratesStale, isFalse);
+      expect(Money.rateMissing, isFalse);
+    });
+
+    test('rateMissing only once the first load has finished', () {
+      Money.debugSetCode('EUR');
+      expect(Money.awaitingRate, isTrue);
+      expect(Money.rateMissing, isFalse);
+      expect(Money.format(1000), Money.placeholder);
+      Money.debugFinishFirstLoad();
+      expect(Money.rateMissing, isTrue);
+      expect(Money.format(1000), r'$1,000.00',
+          reason: 'with no rate at all we show dollars and say so');
+    });
+
+    test('the failure reason is recorded for Settings to show', () {
+      Money.debugSetError('HTTP 429 from /v1/fx');
+      expect(Money.lastError, 'HTTP 429 from /v1/fx');
+    });
+
+    test('USD is never stale and never missing', () {
+      Money.debugSetCachedRates({'EUR': 0.89075});
+      expect(Money.code, 'USD');
+      expect(Money.ratesStale, isFalse);
+      expect(Money.rateMissing, isFalse);
+    });
+});
 }

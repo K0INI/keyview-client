@@ -89,10 +89,33 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (!mounted) return;
     setState(() {});
     if (Money.rateMissing) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+      final why = Money.lastError;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         backgroundColor: Brand.surface2,
-        content: Text("Today's rate isn't available, so values stay in US dollars.",
-            style: TextStyle(color: Brand.warm)),
+        duration: const Duration(seconds: 6),
+        content: Text(
+            why == null
+                ? 'No exchange rate available, so values stay in US dollars.'
+                : 'No exchange rate available ($why), so values stay in US '
+                    'dollars.',
+            style: const TextStyle(color: Brand.warm)),
+        action: SnackBarAction(
+          label: 'Retry',
+          textColor: Brand.amber,
+          onPressed: () async {
+            await Money.refreshRates();
+            if (mounted) setState(() {});
+          },
+        ),
+      ));
+    } else if (Money.ratesStale) {
+      final a = Money.ratesAsOf;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        backgroundColor: Brand.surface2,
+        content: Text(
+            "Converting at the last rate we were able to fetch"
+            "${a == null ? '' : ' (${a.toLocal().toString().split('.').first})'}.",
+            style: const TextStyle(color: Brand.warm)),
       ));
     }
   }

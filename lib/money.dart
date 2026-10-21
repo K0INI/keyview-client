@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:intl/intl.dart';
@@ -69,44 +70,136 @@ class Money {
   /// The chosen currency code.
   static String get code => _code;
 
-  /// USD -> code multipliers, empty until /v1/fx answers.
+  /// USD -> code multipliers. Populated from the on-disk cache at launch and
+  /// then refreshed from `/v1/fx`.
   static Map<String, double> _rates = const {};
   static bool _loaded = false;
   /// Set once the first rate fetch has finished, successfully or not.
   /// Before that we must not render a number in the wrong currency.
   static bool _firstLoadDone = false;
 
+  /// When the rate table we are holding was published by the backend, and when
+  /// we last managed to fetch it. Both null until a fetch or a cache restore
+  /// succeeds.
+  static DateTime? _asOf;
+  static DateTime? _fetchedAt;
+
+  /// Why the last fetch failed, for Settings to display. 0.1.10: every FX
+  /// failure used to be swallowed by `catch (_)`, so a user reporting "euro
+  /// shows dollars" gave us nothing to act on.
+  static String? _lastError;
+
   static const _prefKey = 'display_currency';
+  static const _ratesKey = 'fx_rates_v1';
+  static const _asOfKey = 'fx_as_of_v1';
+  static const _fetchedKey = 'fx_fetched_at_v1';
+
+  /// A cached table older than this is still used — a two-day-old euro rate is
+  /// a far better answer than refusing to convert — but it is labelled stale.
+  static const staleAfter = Duration(hours: 36);
 
   static MoneyCurrency get current => currencies
       .firstWhere((c) => c.code == _code, orElse: () => currencies.first);
 
   /// True when a non-USD currency is selected, the rate fetch has finished,
-  /// and there is still no rate — so the UI can say the figures are in USD
-  /// instead of lying about them.
+  /// and there is still no rate from any source — live or cached — so the UI
+  /// can say the figures are in USD instead of lying about them.
   static bool get rateMissing =>
       _code != 'USD' && _firstLoadDone && !_rates.containsKey(_code);
 
-  /// True while a non-USD currency is selected but its rate has not arrived
-  /// yet. 0.1.9: money renders a placeholder for this brief window instead of
-  /// printing a dollar figure under a euro setting — the defect behind "when
-  /// I select euro the total still populates in dollars". The window is one
-  /// HTTP round trip at launch, and screens rebuild on [version].
+  /// True while a non-USD currency is selected but no rate for it is known
+  /// yet. With the on-disk cache restored at launch this window is now empty
+  /// for anyone who has ever had rates, which is the actual fix for "when I
+  /// select euro the total still populates in dollars".
   static bool get awaitingRate =>
       _code != 'USD' && !_firstLoadDone && !_rates.containsKey(_code);
 
-  /// Restores the saved choice and refreshes rates. Safe to call more than
-  /// once; never throws.
+  /// Converting at a rate we could not refresh today. The figure is honest but
+  /// dated, and the UI says so rather than silently falling back to dollars.
+  static bool get ratesStale {
+    final f = _fetchedAt;
+    if (f == null || !_rates.containsKey(_code) || _code == 'USD') return false;
+    return DateTime.now().difference(f) > staleAfter;
+  }
+
+  static DateTime? get ratesAsOf => _asOf;
+  static String? get lastError => _lastError;
+
+  /// Restores the saved choice AND the last known rate table. Local disk only,
+  /// so it is safe to await before first paint; the network refresh is fired
+  /// off and never blocks the UI.
   static Future<void> init() async {
     try {
       final p = await SharedPreferences.getInstance();
       final saved = p.getString(_prefKey);
       if (saved != null && currencies.any((c) => c.code == saved)) {
         _code = saved;
-        version.value++;
       }
+      _restoreCached(p);
+      version.value++;
     } catch (_) {/* a missing preference just means USD */}
-    await refreshRates();
+    unawaited(refreshRates());
+  }
+
+  static void _restoreCached(SharedPreferences p) {
+    try {
+      final raw = p.getString(_ratesKey);
+      if (raw == null) return;
+      final parsed = _parseRates(jsonDecode(raw));
+      if (parsed.isEmpty) return;
+      _rates = parsed;
+      _loaded = true;
+      final a = p.getString(_asOfKey);
+      if (a != null) _asOf = DateTime.tryParse(a);
+      final f = p.getInt(_fetchedKey);
+      if (f != null) {
+        _fetchedAt = DateTime.fromMillisecondsSinceEpoch(f);
+      }
+    } catch (_) {/* a corrupt cache is simply ignored */}
+  }
+
+  static Future<void> _persist(Map<String, double> rates, String? asOf) async {
+    try {
+      final p = await SharedPreferences.getInstance();
+      await p.setString(_ratesKey, jsonEncode(rates));
+      await p.setInt(_fetchedKey, DateTime.now().millisecondsSinceEpoch);
+      final parsedAsOf = asOf == null ? null : _parseHttpDate(asOf);
+      if (parsedAsOf != null) {
+        await p.setString(_asOfKey, parsedAsOf.toIso8601String());
+      }
+    } catch (_) {/* cache is an optimisation, never a requirement */}
+  }
+
+  static Map<String, double> _parseRates(Object? decoded) {
+    final out = <String, double>{};
+    final raw = decoded is Map
+        ? (decoded['rates'] is Map ? decoded['rates'] as Map : decoded)
+        : const {};
+    raw.forEach((k, v) {
+      final d = v is num ? v.toDouble() : double.tryParse('$v');
+      if (d != null && d > 0) out['$k'] = d;
+    });
+    return out;
+  }
+
+  /// `/v1/fx` reports `asOf` as an RFC 1123 string ("Wed, 21 Oct 2026 ...").
+  static const _months = <String, int>{
+    'Jan': 1, 'Feb': 2, 'Mar': 3, 'Apr': 4, 'May': 5, 'Jun': 6,
+    'Jul': 7, 'Aug': 8, 'Sep': 9, 'Oct': 10, 'Nov': 11, 'Dec': 12,
+  };
+
+  static DateTime? _parseHttpDate(String s) {
+    final iso = DateTime.tryParse(s);
+    if (iso != null) return iso.toLocal();
+    final m = RegExp(r'(\d{1,2}) (\w{3}) (\d{4}) (\d{2}):(\d{2}):(\d{2})')
+        .firstMatch(s);
+    if (m == null) return null;
+    final mon = _months[m.group(2)!];
+    if (mon == null) return null;
+    return DateTime.utc(
+      int.parse(m.group(3)!), mon, int.parse(m.group(1)!),
+      int.parse(m.group(4)!), int.parse(m.group(5)!), int.parse(m.group(6)!),
+    ).toLocal();
   }
 
   static Future<void> setCurrency(String newCode) async {
@@ -120,33 +213,61 @@ class Money {
     if (newCode != 'USD' && !_rates.containsKey(newCode)) await refreshRates();
   }
 
+  /// Three attempts with backoff, and a timeout that matches the rest of the
+  /// API client. 0.1.10: a single slow or rate-limited response used to leave
+  /// the app stuck in dollars for the entire session with nothing logged.
+  static const _attempts = 3;
+  static const _attemptTimeout = Duration(seconds: 20);
+  static bool _inFlight = false;
+
   static Future<void> refreshRates() async {
+    if (_inFlight) return;
+    _inFlight = true;
     if (KeyviewApi.base.isEmpty) {
-      // No backend to ask: the waiting window is over before it began.
+      _lastError = 'No backend configured.';
       _firstLoadDone = true;
+      _inFlight = false;
       version.value++;
       return;
     }
     try {
-      final r = await http
-          .get(Uri.parse('${KeyviewApi.base}/v1/fx'))
-          .timeout(const Duration(seconds: 10));
-      if (r.statusCode != 200) return;
-      final j = jsonDecode(r.body) as Map<String, dynamic>;
-      final raw = (j['rates'] as Map?) ?? {};
-      final parsed = <String, double>{};
-      raw.forEach((k, v) {
-        final d = v is num ? v.toDouble() : double.tryParse('$v');
-        if (d != null && d > 0) parsed['$k'] = d;
-      });
-      if (parsed.isNotEmpty) {
-        _rates = parsed;
-        _loaded = true;
+      for (var attempt = 1; attempt <= _attempts; attempt++) {
+        try {
+          final r = await http
+              .get(Uri.parse('${KeyviewApi.base}/v1/fx'))
+              .timeout(_attemptTimeout);
+          if (r.statusCode != 200) {
+            _lastError = 'HTTP ${r.statusCode} from /v1/fx';
+          } else {
+            final j = jsonDecode(r.body) as Map<String, dynamic>;
+            final parsed = _parseRates(j);
+            if (parsed.isEmpty) {
+              _lastError = '/v1/fx returned no usable rates';
+            } else {
+              _rates = parsed;
+              _loaded = true;
+              _lastError = null;
+              final asOf = j['asOf'];
+              _asOf = asOf is String ? _parseHttpDate(asOf) : null;
+              _fetchedAt = DateTime.now();
+              await _persist(parsed, asOf is String ? asOf : null);
+              return;
+            }
+          }
+        } on TimeoutException {
+          _lastError = 'Timed out after ${_attemptTimeout.inSeconds}s';
+        } catch (e) {
+          _lastError = e.runtimeType.toString();
+        }
+        if (attempt < _attempts) {
+          await Future<void>.delayed(Duration(seconds: attempt * 2));
+        }
       }
-    } catch (_) {/* stay in USD */} finally {
-      // Whatever happened, the waiting window is over: either we have rates
-      // or we fall back to USD and say so. Already-built screens pick this up.
+    } finally {
+      // Whatever happened, the waiting window is over: we either have rates
+      // (fresh or cached) or we fall back to USD and say why.
       _firstLoadDone = true;
+      _inFlight = false;
       version.value++;
     }
   }
@@ -211,6 +332,10 @@ class Money {
     _rates = const {};
     _loaded = false;
     _firstLoadDone = false;
+    _asOf = null;
+    _fetchedAt = null;
+    _lastError = null;
+    _inFlight = false;
     version.value++;
   }
 
@@ -226,6 +351,24 @@ class Money {
     _rates = {'USD': 1, ...r};
     _loaded = true;
     _firstLoadDone = true;
+    _fetchedAt = DateTime.now();
+    version.value++;
+  }
+
+  /// Simulates the on-disk cache restored at launch with an old timestamp —
+  /// the "stale but usable" path.
+  @visibleForTesting
+  static void debugSetCachedRates(Map<String, double> r, {Duration? age}) {
+    _rates = {'USD': 1, ...r};
+    _loaded = true;
+    _firstLoadDone = true;
+    _fetchedAt = DateTime.now().subtract(age ?? const Duration(hours: 48));
+    version.value++;
+  }
+
+  @visibleForTesting
+  static void debugSetError(String? e) {
+    _lastError = e;
     version.value++;
   }
 
