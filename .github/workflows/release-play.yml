@@ -27,7 +27,7 @@ jobs:
           printf "storePassword=%s\nkeyPassword=%s\nkeyAlias=upload\nstoreFile=upload-keystore.jks\n" "$PW" "$PW" > android/key.properties
           ls -l android/app/upload-keystore.jks
       - run: pip3 install --quiet --break-system-packages pillow && python3 tool/gen_icons.py
-      - run: flutter pub get && flutter analyze --no-fatal-infos && flutter test && flutter build appbundle --release
+      - run: flutter pub get && flutter analyze --no-fatal-infos && flutter test && flutter build appbundle --release --dart-define=RC_APPLE_KEY=appl_WevJaMqWjhZybrFTwfqngMvuZPk --dart-define=RC_GOOGLE_KEY=goog_NjZoNEvTHCATODqAfkOFactqHYO
       - name: Attach AAB to GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}

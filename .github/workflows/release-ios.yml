@@ -75,7 +75,7 @@ jobs:
       - name: Build signed IPA
         run: |
           set -euo pipefail
-          flutter build ipa --release --export-options-plist=ios/ExportOptions.plist
+          flutter build ipa --release --export-options-plist=ios/ExportOptions.plist --dart-define=RC_APPLE_KEY=appl_WevJaMqWjhZybrFTwfqngMvuZPk --dart-define=RC_GOOGLE_KEY=goog_NjZoNEvTHCATODqAfkOFactqHYO
           ls -la build/ios/ipa/
 
       - name: Upload to TestFlight
