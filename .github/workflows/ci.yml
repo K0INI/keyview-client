@@ -23,7 +23,9 @@ jobs:
           fi
       - run: flutter pub get
       - run: flutter analyze --no-fatal-infos   # info-level lints stay visible, not fatal
-      - run: flutter test || true   # drop fallback once suite grows
+      # 0.1.9: the gate. This used to be `flutter test || true`, so a
+      # failing suite could not stop a release. It can now.
+      - run: flutter test
 
   android:
     needs: analyze

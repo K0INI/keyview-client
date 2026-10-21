@@ -1,4 +1,8 @@
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../api.dart';
 import '../auth.dart';
 import '../brand.dart';
@@ -41,6 +45,8 @@ class _WatchlistScreenState extends State<WatchlistScreen> {
   void initState() {
     super.initState();
     KeyviewAuth.session.addListener(_reload);
+    // Show the last known totals immediately; the network refreshes them.
+    unawaited(_restoreTotals());
     _reload();
   }
 
@@ -89,6 +95,40 @@ class _WatchlistScreenState extends State<WatchlistScreen> {
   /// A failed fetch returns sample data (see KeyviewApi.portfolio), which must
   /// never be added to a real total — those addresses are marked unavailable
   /// and the header says so instead of quietly under- or over-counting.
+  /// Combined totals for every watched wallet.
+  ///
+  /// 0.1.9 rewrite. This used to fetch four wallets at a time, which meant 14
+  /// sequential rounds for a 54-address watchlist — 45 seconds to two minutes,
+  /// with every wallet that timed out reported as "unavailable". That is what
+  /// "the total doesn't fully populate" was. One batched request now does the
+  /// whole list, and the last-known totals are restored from disk first so the
+  /// card is never blank while it refreshes.
+  static const _totalsPrefKey = 'watchlist_totals_v1';
+  static const _batchSize = 60; // matches the backend's per-request cap
+
+  Future<void> _restoreTotals() async {
+    try {
+      final p = await SharedPreferences.getInstance();
+      final raw = p.getString(_totalsPrefKey);
+      if (raw == null) return;
+      final j = jsonDecode(raw) as Map<String, dynamic>;
+      if (!mounted) return;
+      setState(() {
+        j.forEach((k, v) {
+          final d = (v as num?)?.toDouble();
+          if (d != null) _totals[k] = d;
+        });
+      });
+    } catch (_) {/* a cold cache just means we wait for the network */}
+  }
+
+  Future<void> _persistTotals() async {
+    try {
+      final p = await SharedPreferences.getInstance();
+      await p.setString(_totalsPrefKey, jsonEncode(_totals));
+    } catch (_) {/* best effort */}
+  }
+
   Future<void> _loadTotals(List<WatchedAddress> items) async {
     final run = ++_totalsRun;
     if (!mounted) return;
@@ -99,34 +139,37 @@ class _WatchlistScreenState extends State<WatchlistScreen> {
       _unavailable.removeWhere((k) =>
           !items.any((w) => w.address.toLowerCase() == k));
     });
-    const batch = 4;
-    for (var i = 0; i < items.length; i += batch) {
-      final slice = items.skip(i).take(batch).toList();
-      final results =
-          await Future.wait(slice.map<Future<MapEntry<String, Portfolio?>>>((w) async {
-        try {
-          return MapEntry(w.address.toLowerCase(),
-              await KeyviewApi.portfolio(w.address));
-        } catch (_) {
-          return MapEntry(w.address.toLowerCase(), null);
-        }
-      }));
+
+    final addresses = items.map((w) => w.address).toList();
+    for (var i = 0; i < addresses.length; i += _batchSize) {
+      final slice = addresses.skip(i).take(_batchSize).toList();
+      Map<String, double?> res;
+      try {
+        res = await KeyviewApi.totals(slice);
+      } catch (_) {
+        // The whole request failed. Mark only this slice unavailable — never
+        // substitute a figure, and never drop a total we already trusted.
+        res = {for (final a in slice) a.toLowerCase(): null};
+      }
       if (!mounted || run != _totalsRun) return;
       setState(() {
-        for (final e in results) {
-          final p = e.value;
-          if (p == null || p.isMock) {
-            _totals.remove(e.key);
-            _unavailable.add(e.key);
+        for (final a in slice) {
+          final k = a.toLowerCase();
+          final v = res.containsKey(k) ? res[k] : null;
+          if (v == null) {
+            _totals.remove(k);
+            _unavailable.add(k);
           } else {
-            _unavailable.remove(e.key);
-            _totals[e.key] = p.totalUsd;
+            _unavailable.remove(k);
+            _totals[k] = v;
           }
         }
       });
     }
+
     if (mounted && run == _totalsRun) {
       setState(() => _loadingTotals = false);
+      unawaited(_persistTotals());
     }
   }
 
@@ -363,7 +406,12 @@ class _WatchlistScreenState extends State<WatchlistScreen> {
       children: [
         ValueListenableBuilder<int>(
           valueListenable: Money.version,
-          builder: (context, _, __) => _totalCard(visible),
+          builder: (context, _, __) => Column(
+            children: [
+              _totalCard(visible),
+              const RatesUnavailableBanner(),
+            ],
+          ),
         ),
         if (tags.isNotEmpty) _tagBar(tags),
         Expanded(

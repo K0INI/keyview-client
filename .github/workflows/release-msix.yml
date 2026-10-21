@@ -17,7 +17,7 @@ jobs:
         run: pip install --quiet pillow && python tool/gen_icons.py
       - name: Build Windows release
         shell: bash
-        run: flutter pub get && flutter build windows --release
+        run: flutter pub get && flutter analyze --no-fatal-infos && flutter test && flutter build windows --release
       - name: Capture Windows store screenshot
         continue-on-error: true
         shell: pwsh

@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'auth.dart';
+import 'money.dart';
 import 'supabase_config.dart';
 
 /// Alarm settings for one watched address (spec §4.5, defaults §20.5).
@@ -153,7 +154,9 @@ class Alarm {
       parts.add('All activity');
     }
     if (valueThresholdUsd != null) {
-      parts.add('over ${AlarmFormat.usd(valueThresholdUsd!)}');
+      // 0.1.9: thresholds are stored in USD but described in the user's
+      // chosen display currency — this line used to read "$1.2k" to a euro user.
+      parts.add('over ${Money.formatCompact(valueThresholdUsd!)}');
     }
     if (tokenFilter != 'all') parts.add('· $tokenFilter');
     if (batchingEnabled) parts.add('· grouped every ${batchingWindowMin}m');

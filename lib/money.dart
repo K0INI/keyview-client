@@ -72,16 +72,28 @@ class Money {
   /// USD -> code multipliers, empty until /v1/fx answers.
   static Map<String, double> _rates = const {};
   static bool _loaded = false;
+  /// Set once the first rate fetch has finished, successfully or not.
+  /// Before that we must not render a number in the wrong currency.
+  static bool _firstLoadDone = false;
 
   static const _prefKey = 'display_currency';
 
   static MoneyCurrency get current => currencies
       .firstWhere((c) => c.code == _code, orElse: () => currencies.first);
 
-  /// True when a non-USD currency is selected but no rate is available, so
-  /// the UI can say the figures are still in USD instead of lying.
+  /// True when a non-USD currency is selected, the rate fetch has finished,
+  /// and there is still no rate — so the UI can say the figures are in USD
+  /// instead of lying about them.
   static bool get rateMissing =>
-      _code != 'USD' && !_rates.containsKey(_code);
+      _code != 'USD' && _firstLoadDone && !_rates.containsKey(_code);
+
+  /// True while a non-USD currency is selected but its rate has not arrived
+  /// yet. 0.1.9: money renders a placeholder for this brief window instead of
+  /// printing a dollar figure under a euro setting — the defect behind "when
+  /// I select euro the total still populates in dollars". The window is one
+  /// HTTP round trip at launch, and screens rebuild on [version].
+  static bool get awaitingRate =>
+      _code != 'USD' && !_firstLoadDone && !_rates.containsKey(_code);
 
   /// Restores the saved choice and refreshes rates. Safe to call more than
   /// once; never throws.
@@ -109,7 +121,12 @@ class Money {
   }
 
   static Future<void> refreshRates() async {
-    if (KeyviewApi.base.isEmpty) return;
+    if (KeyviewApi.base.isEmpty) {
+      // No backend to ask: the waiting window is over before it began.
+      _firstLoadDone = true;
+      version.value++;
+      return;
+    }
     try {
       final r = await http
           .get(Uri.parse('${KeyviewApi.base}/v1/fx'))
@@ -125,10 +142,13 @@ class Money {
       if (parsed.isNotEmpty) {
         _rates = parsed;
         _loaded = true;
-        // Already-built screens pick the new rate up on this bump.
-        version.value++;
       }
-    } catch (_) {/* stay in USD */}
+    } catch (_) {/* stay in USD */} finally {
+      // Whatever happened, the waiting window is over: either we have rates
+      // or we fall back to USD and say so. Already-built screens pick this up.
+      _firstLoadDone = true;
+      version.value++;
+    }
   }
 
   static bool get ratesLoaded => _loaded;
@@ -140,16 +160,22 @@ class Money {
     return r == null ? usd : usd * r;
   }
 
+  /// Shown for the one round trip between "EUR selected" and "EUR rate here".
+  static const placeholder = '—';
+
   /// A full currency string for [usd], e.g. "€1,234.56".
   static String format(double usd) {
+    if (awaitingRate) return placeholder;
     final c = rateMissing ? currencies.first : current;
     return NumberFormat.currency(symbol: c.symbol, decimalDigits: c.decimals)
         .format(convert(usd));
   }
 
   /// Like [format] but keeps small values readable instead of collapsing a
-  /// fraction of a cent to zero.
+  /// fraction of a cent to zero — which is what the EthFan tokens need:
+  /// $0.000003965 must not render as "$0.00".
   static String formatPrice(double usd) {
+    if (awaitingRate) return placeholder;
     final v = convert(usd);
     final c = rateMissing ? currencies.first : current;
     if (v != 0 && v.abs() < 0.01) {
@@ -157,6 +183,56 @@ class Money {
     }
     return NumberFormat.currency(symbol: c.symbol, decimalDigits: c.decimals)
         .format(v);
+  }
+
+  /// Compact money for tight spots (alarm thresholds): "€1.2k", "$3.4M".
+  /// 0.1.9 — alarms.dart printed these with a hardcoded "$" regardless of the
+  /// chosen currency.
+  static String formatCompact(double usd) {
+    if (awaitingRate) return placeholder;
+    final v = convert(usd);
+    final s = (rateMissing ? currencies.first : current).symbol;
+    final a = v.abs();
+    if (a >= 1000000) return '$s${(v / 1000000).toStringAsFixed(1)}M';
+    if (a >= 1000) {
+      return '$s${(v / 1000).toStringAsFixed(v % 1000 == 0 ? 0 : 1)}k';
+    }
+    if (v == v.roundToDouble()) return '$s${v.toStringAsFixed(0)}';
+    return '$s${v.toStringAsFixed(2)}';
+  }
+
+  // ── Test hooks ────────────────────────────────────────────────────────────
+  // Exposed so the currency rules can be tested without a network or a
+  // SharedPreferences binding. Not used by the app.
+
+  @visibleForTesting
+  static void debugReset() {
+    _code = 'USD';
+    _rates = const {};
+    _loaded = false;
+    _firstLoadDone = false;
+    version.value++;
+  }
+
+  @visibleForTesting
+  static void debugSetCode(String c) {
+    if (!currencies.any((x) => x.code == c)) return;
+    _code = c;
+    version.value++;
+  }
+
+  @visibleForTesting
+  static void debugSetRates(Map<String, double> r) {
+    _rates = {'USD': 1, ...r};
+    _loaded = true;
+    _firstLoadDone = true;
+    version.value++;
+  }
+
+  @visibleForTesting
+  static void debugFinishFirstLoad() {
+    _firstLoadDone = true;
+    version.value++;
   }
 }
 

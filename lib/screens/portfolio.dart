@@ -10,9 +10,26 @@ import '../watch.dart';
 import 'sign_in.dart';
 import 'token_detail.dart';
 
-class PortfolioScreen extends StatelessWidget {
+class PortfolioScreen extends StatefulWidget {
   final String address;
   const PortfolioScreen({super.key, required this.address});
+  @override
+  State<PortfolioScreen> createState() => _PortfolioScreenState();
+}
+
+class _PortfolioScreenState extends State<PortfolioScreen> {
+  /// 0.1.9: the future is created ONCE, not inside build(). It used to be
+  /// built inline in the FutureBuilder, so every rebuild — including every
+  /// display-currency change — refetched the whole wallet.
+  late Future<Portfolio> _future = KeyviewApi.portfolio(widget.address);
+  late Future<History> _history = KeyviewApi.history(widget.address);
+
+  void _retry() => setState(() {
+        _future = KeyviewApi.portfolio(widget.address);
+        _history = KeyviewApi.history(widget.address);
+      });
+
+  String get address => widget.address;
 
   String get shortAddr => address.length > 12
       ? '${address.substring(0, 6)}…${address.substring(address.length - 4)}'
@@ -73,8 +90,18 @@ class PortfolioScreen extends StatelessWidget {
         ],
       ),
       body: FutureBuilder<Portfolio>(
-        future: KeyviewApi.portfolio(address),
+        future: _future,
         builder: (context, snap) {
+          // 0.1.9: a failure is shown as a failure. The old code returned
+          // ~$50k of sample holdings here and drew them like real money.
+          if (snap.hasError) {
+            return _ErrorState(
+              message: snap.error is KeyviewApiException
+                  ? '${snap.error}'
+                  : "Couldn't load this wallet.",
+              onRetry: _retry,
+            );
+          }
           if (!snap.hasData) {
             return const Center(
                 child: CircularProgressIndicator(color: Brand.amber));
@@ -86,6 +113,7 @@ class PortfolioScreen extends StatelessWidget {
               child: ListView(
                 padding: const EdgeInsets.all(16),
                 children: [
+                  const RatesUnavailableBanner(),
                   Card(
                     child: Padding(
                       padding: const EdgeInsets.all(18),
@@ -270,7 +298,15 @@ class _AssetRow extends StatelessWidget {
             Text('${up ? '+' : ''}${h.change24h.toStringAsFixed(1)}%',
                 style: TextStyle(
                     color: up ? Brand.up : Brand.down, fontSize: 12)),
-            if (h.priceConfidence < 0.7)
+            // 0.1.9: a real price with a caveat beats a blank row. These
+            // notes are why the EthFan tokens can show a value again.
+            if (h.exitRisk == 'thin-for-size')
+              Text('hard to exit at size', style: Brand.micro(size: 9)),
+            if (h.exitRisk == 'thin-market')
+              Text('thin market', style: Brand.micro(size: 9)),
+            if (h.priceStale)
+              Text('last known price', style: Brand.micro(size: 9)),
+            if (h.priceConfidence < 0.7 && h.exitRisk == null && !h.priceStale)
               Text('~ low confidence', style: Brand.micro(size: 9)),
           ],
         ),
@@ -310,9 +346,9 @@ class _UnpricedRow extends StatelessWidget {
                     if (h.priceSources.isNotEmpty)
                       'sources: ${h.priceSources.join(', ')}',
                     if (h.liquidityUsd != null)
-                      'pool liquidity: \$${h.liquidityUsd!.toStringAsFixed(0)}',
+                      'pool liquidity: ${Money.formatCompact(h.liquidityUsd!)}',
                     if (h.priceUsd > 0)
-                      'quoted (unverified): \$${h.priceUsd.toStringAsPrecision(4)}',
+                      'quoted (unverified): ${Money.formatPrice(h.priceUsd)}',
                   ].join('\n'),
                   style: const TextStyle(color: Brand.warm2, fontSize: 12),
                 ),
@@ -373,8 +409,15 @@ class _HistorySection extends StatelessWidget {
   Widget build(BuildContext context) {
     final amt = NumberFormat('#,##0.######');
     return FutureBuilder<History>(
-      future: KeyviewApi.history(address),
+      future: _history,
       builder: (context, snap) {
+        if (snap.hasError) {
+          return Padding(
+            padding: const EdgeInsets.all(20),
+            child: Text("Couldn't load recent activity.",
+                style: Brand.micro(size: 10)),
+          );
+        }
         if (!snap.hasData) {
           return const Padding(
             padding: EdgeInsets.all(24),
@@ -434,6 +477,68 @@ class _HistorySection extends StatelessWidget {
           ]),
         );
       },
+    );
+  }
+}
+
+/// Honest failure (0.1.9). Replaces the sample-data fallback that used to
+/// stand in for a network error — a wrong number is worse than no number.
+class _ErrorState extends StatelessWidget {
+  final String message;
+  final VoidCallback onRetry;
+  const _ErrorState({required this.message, required this.onRetry});
+
+  @override
+  Widget build(BuildContext context) => Center(
+        child: Padding(
+          padding: const EdgeInsets.all(28),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.cloud_off_rounded, color: Brand.warm3, size: 28),
+              const SizedBox(height: 14),
+              Text(message,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Brand.warm2, height: 1.5)),
+              const SizedBox(height: 18),
+              OutlinedButton(onPressed: onRetry, child: const Text('Try again')),
+              const SizedBox(height: 14),
+              Text('no figures are shown unless they can be verified',
+                  style: Brand.micro(size: 9)),
+            ],
+          ),
+        ),
+      );
+}
+
+/// Shown when a non-USD currency is chosen but no rate could be fetched, so
+/// the figures on screen are still dollars. Silence here was the reason the
+/// app looked like currency selection "did nothing".
+class RatesUnavailableBanner extends StatelessWidget {
+  const RatesUnavailableBanner({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    if (!Money.rateMissing) return const SizedBox.shrink();
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: Brand.surface2,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Brand.line),
+      ),
+      child: Row(children: [
+        const Icon(Icons.currency_exchange_rounded, size: 14, color: Brand.amber),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            'Exchange rates unavailable — showing US dollars.',
+            style: Brand.micro(size: 10),
+          ),
+        ),
+      ]),
     );
   }
 }

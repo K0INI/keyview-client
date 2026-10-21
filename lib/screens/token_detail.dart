@@ -27,7 +27,16 @@ class TokenDetailScreen extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) =>
+      // 0.1.9: this screen never rebuilt when the display currency or its
+      // rate arrived, so a detail opened at launch stayed in dollars for its
+      // whole life.
+      ValueListenableBuilder<int>(
+        valueListenable: Money.version,
+        builder: (context, _, __) => _body(context),
+      );
+
+  Widget _body(BuildContext context) {
     final up = h.change24h >= 0;
     final explorer = KeyviewApi.explorerTokenUrl(h) ??
         (KeyviewApi.explorers[h.chain] ?? '');
