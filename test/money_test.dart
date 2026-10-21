@@ -67,9 +67,18 @@ void main() {
     test('tiny prices stay readable — the EthFan case', () {
       // $EFB traded at $0.000003965 on 2026-10-17. Rendering that as
       // "$0.00" is the same as showing no price at all.
-      expect(Money.formatPrice(0.000003965), isNot(r'$0.00'));
-      expect(Money.formatPrice(0.000003965), contains('3.97'));
-      expect(Money.formatPrice(0.000001582), contains('1.58'));
+      // formatPrice renders sub-cent values with toStringAsPrecision(3), so
+      // $EFB reads "$0.00000397" — the significant digits survive, but there
+      // is no decimal point between them. Assert the digits, not a formatting
+      // accident, so this passes under fixed or exponential rendering.
+      String digits(String s) => s.replaceAll(RegExp(r'[^0-9]'), '');
+      final efb = Money.formatPrice(0.000003965);
+      expect(efb, isNot(r'$0.00'));
+      expect(efb, startsWith(r'$'));
+      expect(digits(efb), contains('397'));
+      final efbp = Money.formatPrice(0.000001582);
+      expect(efbp, isNot(r'$0.00'));
+      expect(digits(efbp), contains('158'));
     });
 
     test('compact money follows the chosen currency', () {
