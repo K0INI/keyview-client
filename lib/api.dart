@@ -62,6 +62,30 @@ class KeyviewApi {
     }
   }
 
+  /// Collectibles for one address — fetched ON DEMAND only (the user opens
+  /// the section), because each uncached build costs real Alchemy compute.
+  /// [fresh] is pull-to-refresh; the backend still enforces a 120s floor.
+  static Future<Collectibles> nfts(String address, {bool fresh = false}) async {
+    if (base.isEmpty) _fail('No backend configured.');
+    try {
+      final r = await http
+          .get(Uri.parse('$base/v1/nfts/$address${fresh ? '?fresh=1' : ''}'))
+          .timeout(const Duration(seconds: 25));
+      if (r.statusCode != 200) {
+        _fail(
+            r.statusCode == 503
+                ? 'Collectibles are temporarily unavailable.'
+                : "Couldn't load collectibles (error ${r.statusCode}).",
+            statusCode: r.statusCode);
+      }
+      return Collectibles.fromJson(jsonDecode(r.body) as Map<String, dynamic>);
+    } on KeyviewApiException {
+      rethrow;
+    } catch (_) {
+      _fail(_offline);
+    }
+  }
+
   /// Combined totals for a whole watchlist in ONE request (backend 0.1.9).
   ///
   /// Returns address (lowercased) → total USD, with null meaning "we could
@@ -261,4 +285,96 @@ class Portfolio {
         Holding('SOL', 'Solana', 'solana', 9.50, 172.45, 5.8),
         Holding('TSLA', 'Tesla (Stock Token)', 'robinhood', 2.00, 405.53, -0.8),
       ], isMock: true);
+}
+
+// ── Collectibles (watch-only NFT display, spec: keyview-nft-spec) ───────────
+
+/// Build-time stage flag. Default OFF so store builds during a review window
+/// are behaviourally identical; flipped with --dart-define=COLLECTIBLES=true
+/// when the feature ships. The backend's NFT_ENABLED var is the runtime
+/// kill-switch on top of this.
+const bool kCollectibles =
+    bool.fromEnvironment('COLLECTIBLES', defaultValue: false);
+
+class NftItem {
+  final String tokenId;
+  final String? name;
+  final String? imageUrl;
+  final double balance;
+  const NftItem(this.tokenId, {this.name, this.imageUrl, this.balance = 1});
+
+  factory NftItem.fromJson(Map<String, dynamic> j) => NftItem(
+      j['tokenId'] as String? ?? '',
+      name: j['name'] as String?,
+      imageUrl: j['imageUrl'] as String?,
+      balance: (j['balance'] as num?)?.toDouble() ?? 1);
+}
+
+class NftCollection {
+  final String chain, contract, name, tokenType;
+  final String? symbol, imageUrl;
+  final int count, itemCount;
+  /// OpenSea floor — an indicative, single-source figure. null means "no
+  /// floor price": the honest answer, never zero-filled.
+  final double? floorEth, floorUsd, valueUsd;
+  final List<NftItem> items;
+  const NftCollection(this.chain, this.contract, this.name,
+      {this.symbol,
+      this.imageUrl,
+      this.tokenType = 'ERC721',
+      this.count = 0,
+      this.itemCount = 0,
+      this.floorEth,
+      this.floorUsd,
+      this.valueUsd,
+      this.items = const []});
+
+  factory NftCollection.fromJson(Map<String, dynamic> j) => NftCollection(
+      j['chain'] as String? ?? '',
+      j['contract'] as String? ?? '',
+      (j['name'] as String?)?.isNotEmpty == true
+          ? j['name'] as String
+          : 'Unnamed collection',
+      symbol: j['symbol'] as String?,
+      imageUrl: j['imageUrl'] as String?,
+      tokenType: j['tokenType'] as String? ?? 'ERC721',
+      count: (j['count'] as num?)?.toInt() ?? 0,
+      itemCount: (j['itemCount'] as num?)?.toInt() ?? 0,
+      floorEth: (j['floorEth'] as num?)?.toDouble(),
+      floorUsd: (j['floorUsd'] as num?)?.toDouble(),
+      valueUsd: (j['valueUsd'] as num?)?.toDouble(),
+      items: ((j['items'] as List?) ?? const [])
+          .map((e) => NftItem.fromJson(e as Map<String, dynamic>))
+          .toList());
+}
+
+class Collectibles {
+  final String address;
+  final bool enabled, supported;
+  final List<NftCollection> collections;
+  /// Floor-value subtotal. Labelled and shown apart — NEVER added to the
+  /// fungible Total Watched figure.
+  final double collectiblesUsd;
+  final int hiddenCount, unpricedCollections;
+  final DateTime? pricedAt;
+  const Collectibles(this.address,
+      {this.enabled = false,
+      this.supported = true,
+      this.collections = const [],
+      this.collectiblesUsd = 0,
+      this.hiddenCount = 0,
+      this.unpricedCollections = 0,
+      this.pricedAt});
+
+  factory Collectibles.fromJson(Map<String, dynamic> j) => Collectibles(
+      j['address'] as String? ?? '',
+      enabled: j['enabled'] == true,
+      supported: j['supported'] != false,
+      collections: ((j['collections'] as List?) ?? const [])
+          .map((e) => NftCollection.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      collectiblesUsd: (j['collectiblesUsd'] as num?)?.toDouble() ?? 0,
+      hiddenCount: (j['hiddenCount'] as num?)?.toInt() ?? 0,
+      unpricedCollections: (j['unpricedCollections'] as num?)?.toInt() ?? 0,
+      pricedAt: DateTime.tryParse(j['pricedAt'] as String? ?? '')?.toLocal());
 }

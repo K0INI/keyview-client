@@ -7,6 +7,7 @@ import '../money.dart';
 import '../funnel.dart';
 import '../supabase_config.dart';
 import '../watch.dart';
+import 'collectibles.dart';
 import 'sign_in.dart';
 import 'token_detail.dart';
 
@@ -171,6 +172,10 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
                     ),
                     ...p.unpriced.map((h) => _UnpricedRow(h: h)),
                   ],
+                  // Collectibles — staged behind a build flag (default off) so
+                  // in-flight store builds are untouched; fetches only when
+                  // the user opens the section (each build costs Alchemy CU).
+                  if (kCollectibles) CollectiblesSection(address: address),
                   const SizedBox(height: 16),
                   Padding(
                     padding: const EdgeInsets.only(left: 4, bottom: 6),
