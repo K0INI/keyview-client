@@ -60,7 +60,10 @@ void main() {
     });
 
     test('junk fields never throw', () {
-      final c = Collectibles.fromJson({'collections': [{}], 'collectiblesUsd': null});
+      final c = Collectibles.fromJson({
+        'collections': [<String, dynamic>{}],
+        'collectiblesUsd': null,
+      });
       expect(c.collections.single.name, 'Unnamed collection');
       expect(c.collectiblesUsd, 0);
     });
