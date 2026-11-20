@@ -20,7 +20,7 @@ class _LookupScreenState extends State<LookupScreen> {
   void _go() {
     final a = _ctrl.text.trim();
     if (!KeyviewApi.isValidAddress(a)) {
-      setState(() => _error = 'Enter a valid EVM (0x…), Solana, or ENS address');
+      setState(() => _error = 'Enter a valid wallet address — EVM (0x…), Solana, Bitcoin, Litecoin, Dogecoin, Tron, XRP, Cardano, TON — or an ENS name');
       return;
     }
     Navigator.of(context)
@@ -78,7 +78,7 @@ class _LookupScreenState extends State<LookupScreen> {
                       onSubmitted: (_) => _go(),
                       style: const TextStyle(color: Brand.warm),
                       decoration: InputDecoration(
-                        hintText: '0x…  ·  Solana address  ·  name.eth',
+                        hintText: '0x…  ·  Solana  ·  bc1…  ·  T…  ·  r…  ·  name.eth',
                         hintStyle: const TextStyle(color: Brand.warm3),
                         errorText: _error,
                         filled: true,
