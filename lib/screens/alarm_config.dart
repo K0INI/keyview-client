@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../alarms.dart';
+import '../chains.dart';
 import '../auth.dart';
 import '../brand.dart';
 import '../funnel.dart';
@@ -172,6 +173,21 @@ class _AlarmConfigScreenState extends State<AlarmConfigScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Balances-only networks (expansion 2026-11-20) — nothing here can work,
+    // so say it plainly instead of rendering dead controls.
+    if (!alarmKinds.contains(widget.watched.chainKind)) {
+      return Scaffold(
+        appBar: AppBar(title: Text('ALARM', style: Brand.micro())),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Text(balancesOnlyNote(widget.watched.chainKind),
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Brand.warm2, fontSize: 14)),
+          ),
+        ),
+      );
+    }
     final a = _alarm;
     return Scaffold(
       appBar: AppBar(

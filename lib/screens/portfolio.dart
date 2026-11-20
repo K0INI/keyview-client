@@ -140,6 +140,12 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
                             Text('prices as of ${_agoShort(p.pricedAt!)}',
                                 style: Brand.micro(size: 10)),
                           ],
+                          // Balances-only networks (expansion 2026-11-20):
+                          // the backend sends the wording; show it quietly.
+                          if (!p.alarmsSupported && p.alarmsNote != null) ...[
+                            const SizedBox(height: 4),
+                            Text(p.alarmsNote!, style: Brand.micro(size: 10)),
+                          ],
                         ],
                       ),
                     ),

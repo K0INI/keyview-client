@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'chains.dart';
 
 /// Something went wrong talking to the backend. Carries a sentence we are
 /// willing to show a user — never a stack trace, never a fabricated number.
@@ -111,12 +112,14 @@ class KeyviewApi {
     }
   }
 
-  static final _evm = RegExp(r'^0x[0-9a-fA-F]{40}$');
-  static final _sol = RegExp(r'^[1-9A-HJ-NP-Za-km-z]{32,44}$');
+  /// Checksum-validated (lib/chains.dart, mirrors the backend): EVM, Solana,
+  /// Bitcoin (all four formats), Litecoin, Dogecoin, Tron, XRP, Cardano, TON,
+  /// or an ENS name.
   static bool isValidAddress(String a) =>
-      _evm.hasMatch(a) || _sol.hasMatch(a) || a.endsWith('.eth');
+      a.endsWith('.eth') || classifyAddress(a) != 'invalid';
 
-  /// Block-explorer bases, mirroring the backend chain registry (spec §20.6).
+  /// Block-explorer bases, mirroring the backend chain registry (spec §20.6
+  /// + network expansion 2026-11-20).
   static const Map<String, String> explorers = {
     'ethereum': 'https://etherscan.io',
     'base': 'https://basescan.org',
@@ -126,6 +129,13 @@ class KeyviewApi {
     'bsc': 'https://bscscan.com',
     'robinhood': 'https://robinhoodchain.blockscout.com',
     'solana': 'https://solscan.io',
+    'bitcoin': 'https://mempool.space',
+    'litecoin': 'https://blockchair.com/litecoin',
+    'dogecoin': 'https://blockchair.com/dogecoin',
+    'tron': 'https://tronscan.org',
+    'xrp': 'https://xrpscan.com',
+    'cardano': 'https://cardanoscan.io',
+    'ton': 'https://tonviewer.com',
   };
 
   static String? explorerTokenUrl(Holding h) {
@@ -239,8 +249,18 @@ class Portfolio {
   final List<Holding> unpriced;
   final DateTime? pricedAt;
   final bool isMock;
+  /// Network expansion (2026-11-20): false on balances-only networks
+  /// (Bitcoin, Litecoin, Dogecoin, Tron, XRP, Cardano, TON). Older backends
+  /// omit the field; the default keeps EVM/Solana behaviour.
+  final bool alarmsSupported;
+  /// Plain-words note from the backend when [alarmsSupported] is false.
+  final String? alarmsNote;
   const Portfolio(this.address, this.holdings,
-      {this.unpriced = const [], this.pricedAt, this.isMock = false});
+      {this.unpriced = const [],
+      this.pricedAt,
+      this.isMock = false,
+      this.alarmsSupported = true,
+      this.alarmsNote});
   double get totalUsd =>
       holdings.fold(0, (s, h) => h.reliable ? s + h.valueUsd : s);
 
@@ -252,7 +272,9 @@ class Portfolio {
       unpriced: ((j['unpriced'] as List?) ?? [])
           .map((e) => Holding.fromJson(e as Map<String, dynamic>))
           .toList(),
-      pricedAt: DateTime.tryParse(j['pricedAt'] as String? ?? '')?.toLocal());
+      pricedAt: DateTime.tryParse(j['pricedAt'] as String? ?? '')?.toLocal(),
+      alarmsSupported: j['alarmsSupported'] != false,
+      alarmsNote: j['alarmsNote'] as String?);
 
   factory Portfolio.mock(String address) => Portfolio(address, const [
         Holding('BTC', 'Bitcoin', 'bitcoin', 0.42, 68420.00, 2.1),
