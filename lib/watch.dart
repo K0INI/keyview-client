@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'auth.dart';
+import 'chains.dart';
 import 'supabase_config.dart';
 
 /// Watchlist CRUD straight against Supabase PostgREST — row-level security
@@ -108,9 +109,12 @@ class WatchlistService {
   /// Null on success, or a friendly error message.
   static Future<String?> add(Session s, String address,
       {String? label, List<String> tags = const []}) async {
-    final kind = address.endsWith('.eth') || address.startsWith('0x')
+    // Checksum-validated classification (lib/chains.dart, network expansion
+    // 2026-11-20) — a Bitcoin/Tron/… address must never be filed as Solana.
+    final classified = classifyAddress(address);
+    final kind = address.endsWith('.eth')
         ? 'evm'
-        : 'solana';
+        : (classified == 'invalid' ? 'evm' : classified);
     try {
       final r = await http
           .post(Uri.parse('${SupabaseConfig.url}/rest/v1/$_table'),

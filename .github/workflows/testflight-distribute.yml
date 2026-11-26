@@ -52,5 +52,4 @@ jobs:
             --distribute_external true \
             --groups "Public beta" \
             --notify_external_testers true \
-            --changelog "$IN_CHANGELOG" \
-            --beta_app_review_info "contact_email:support@koini.io,contact_first_name:Luis,contact_last_name:Delgado,contact_phone:+13026650059,demo_account_required:false"
+            --changelog "$IN_CHANGELOG"

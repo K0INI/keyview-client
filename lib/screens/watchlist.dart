@@ -8,6 +8,7 @@ import '../auth.dart';
 import '../brand.dart';
 import '../money.dart';
 import '../supabase_config.dart';
+import '../chains.dart';
 import '../watch.dart';
 import 'alarm_config.dart';
 import 'portfolio.dart';
@@ -241,7 +242,7 @@ class _WatchlistScreenState extends State<WatchlistScreen> {
                   decoration: const InputDecoration(
                       labelText: 'Address',
                       labelStyle: TextStyle(color: Brand.warm3),
-                      hintText: '0x…  ·  Solana  ·  name.eth',
+                      hintText: '0x…  ·  Solana  ·  bc1…  ·  T…  ·  r…  ·  name.eth',
                       hintStyle: TextStyle(color: Brand.warm3)),
                 )
               else
@@ -555,6 +556,17 @@ class _WatchlistScreenState extends State<WatchlistScreen> {
         ),
       );
 
+  static IconData _kindIcon(String kind) => switch (kind) {
+        'solana' => Icons.wb_sunny_outlined,
+        'bitcoin' => Icons.currency_bitcoin,
+        'litecoin' || 'dogecoin' => Icons.paid_outlined,
+        'tron' => Icons.bolt_outlined,
+        'xrp' => Icons.water_drop_outlined,
+        'cardano' => Icons.spa_outlined,
+        'ton' => Icons.send_outlined,
+        _ => Icons.diamond_outlined,
+      };
+
   Widget _row(WatchedAddress w, {required Key key}) => Card(
         key: key,
         margin: const EdgeInsets.symmetric(vertical: 4),
@@ -562,9 +574,7 @@ class _WatchlistScreenState extends State<WatchlistScreen> {
           onTap: () => Navigator.of(context).push(MaterialPageRoute(
               builder: (_) => PortfolioScreen(address: w.address))),
           leading: Icon(
-            w.chainKind == 'solana'
-                ? Icons.wb_sunny_outlined
-                : Icons.diamond_outlined,
+            _kindIcon(w.chainKind),
             size: 18,
             color: Brand.amber,
           ),
@@ -573,7 +583,7 @@ class _WatchlistScreenState extends State<WatchlistScreen> {
           subtitle: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('${w.shortAddress} · ${w.chainKind}',
+              Text('${w.shortAddress} · ${kindName(w.chainKind)}',
                   style: const TextStyle(color: Brand.warm3, fontSize: 11)),
               if (w.tags.isNotEmpty)
                 Padding(
@@ -608,6 +618,12 @@ class _WatchlistScreenState extends State<WatchlistScreen> {
             onSelected: (v) async {
               if (v == 'edit') return _editDialog(w);
               if (v == 'alarm') {
+                // Balances-only networks (expansion 2026-11-20): say it in
+                // plain words instead of opening a screen that cannot work.
+                if (!alarmKinds.contains(w.chainKind)) {
+                  _snack(balancesOnlyNote(w.chainKind));
+                  return;
+                }
                 final changed = await Navigator.of(context).push<bool>(
                     MaterialPageRoute(
                         builder: (_) => AlarmConfigScreen(watched: w)));
