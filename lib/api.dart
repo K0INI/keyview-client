@@ -316,7 +316,7 @@ class Portfolio {
 /// when the feature ships. The backend's NFT_ENABLED var is the runtime
 /// kill-switch on top of this.
 const bool kCollectibles =
-    bool.fromEnvironment('COLLECTIBLES', defaultValue: false);
+    bool.fromEnvironment('COLLECTIBLES', defaultValue: true);
 
 class NftItem {
   final String tokenId;
